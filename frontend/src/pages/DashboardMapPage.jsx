@@ -1,13 +1,5 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
-import {
-  MapContainer,
-  TileLayer,
-  Marker,
-  Popup,
-  Polyline,
-  useMap,
-} from "react-leaflet";
-import L from "leaflet";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import * as maplibregl from "maplibre-gl";
 import apiClient from "../api/client";
 import { useTrajectory, getSpeedColor } from "../hooks/useTrajectory";
 import { useWebSocket } from "../hooks/useWebSocket";
@@ -16,66 +8,63 @@ import {
   Play,
   Pause,
   RotateCcw,
-  Radio,
   Camera as CameraIcon,
-  Activity,
-  Layers,
-  Clock,
-  Gauge,
-  Percent,
-  Image as ImageIcon,
-  ChevronRight,
-  Info,
+  ImageIcon,
 } from "lucide-react";
 
-// Custom Leaflet Icons using Swiss styling
-function createNumberedIcon(num, isActive = false) {
-  return L.divIcon({
-    className: `swiss-marker ${isActive ? "active" : ""}`,
-    html: `<span>${num}</span>`,
-    iconSize: [28, 28],
-    iconAnchor: [14, 14],
-    popupAnchor: [0, -16],
-  });
-}
+// Default center: Chennai Corridor (Kathipara - ORR)
+const DEFAULT_CENTER = [80.1491, 12.9675]; // [lng, lat]
+const MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 
-function createCameraIcon(name) {
-  return L.divIcon({
-    className: "swiss-camera-marker",
-    html: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>`,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
-    popupAnchor: [0, -14],
-  });
-}
+function ensureTrajectoryLayers(map) {
+  if (!map || !map.isStyleLoaded()) return;
 
-function createVehicleCursorIcon() {
-  return L.divIcon({
-    className: "swiss-vehicle-cursor",
-    html: `<div></div>`,
-    iconSize: [20, 20],
-    iconAnchor: [10, 10],
-  });
-}
+  if (!map.getSource("trajectory-segments")) {
+    map.addSource("trajectory-segments", {
+      type: "geojson",
+      data: {
+        type: "FeatureCollection",
+        features: [],
+      },
+    });
 
-// Controller to smoothly fit map bounds
-function MapBoundsUpdater({ points, cameras }) {
-  const map = useMap();
+    map.addLayer({
+      id: "trajectory-casing",
+      type: "line",
+      source: "trajectory-segments",
+      layout: {
+        "line-join": "round",
+        "line-cap": "round",
+      },
+      paint: {
+        "line-color": "#000000",
+        "line-width": 7,
+        "line-opacity": 0.8,
+      },
+    });
 
-  useEffect(() => {
-    if (points && points.length > 0) {
-      const bounds = L.latLngBounds(points.map((p) => [p.lat, p.lng]));
-      map.fitBounds(bounds, { padding: [60, 60], maxZoom: 15 });
-    } else if (cameras && cameras.length > 0) {
-      const bounds = L.latLngBounds(cameras.map((c) => [c.latitude, c.longitude]));
-      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 });
-    }
-  }, [points, cameras, map]);
-
-  return null;
+    map.addLayer({
+      id: "trajectory-lines",
+      type: "line",
+      source: "trajectory-segments",
+      layout: {
+        "line-join": "round",
+        "line-cap": "round",
+      },
+      paint: {
+        "line-color": ["get", "color"],
+        "line-width": 4.5,
+        "line-opacity": 0.95,
+      },
+    });
+  }
 }
 
 export function DashboardMapPage({ initialSearchPlate = null, onPlateSelect = null }) {
+  const mapContainerRef = useRef(null);
+  const mapRef = useRef(null);
+  const [isMapReady, setIsMapReady] = useState(false);
+
   const [searchInput, setSearchInput] = useState(initialSearchPlate || "");
   const [cameras, setCameras] = useState([]);
   const [loadingCameras, setLoadingCameras] = useState(false);
@@ -109,7 +98,55 @@ export function DashboardMapPage({ initialSearchPlate = null, onPlateSelect = nu
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const playIntervalRef = useRef(null);
 
-  // Fetch cameras and sample plates
+  // Marker references for MapLibre
+  const cameraMarkersRef = useRef([]);
+  const trajectoryMarkersRef = useRef([]);
+  const vehicleCursorRef = useRef(null);
+
+  // 1. Initialize MapLibre GL with OpenFreeMap Liberty style
+  useEffect(() => {
+    if (!mapContainerRef.current) return;
+
+    const map = new maplibregl.Map({
+      container: mapContainerRef.current,
+      style: MAP_STYLE_URL,
+      center: DEFAULT_CENTER,
+      zoom: 12,
+      attributionControl: true,
+    });
+
+    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
+
+    map.on("load", () => {
+      ensureTrajectoryLayers(map);
+      setIsMapReady(true);
+    });
+
+    // Resize observer to ensure responsive map resizing
+    const resizeObserver = new ResizeObserver(() => {
+      if (map) map.resize();
+    });
+    resizeObserver.observe(mapContainerRef.current);
+
+    mapRef.current = map;
+
+    return () => {
+      setIsMapReady(false);
+      resizeObserver.disconnect();
+      cameraMarkersRef.current.forEach((m) => m.remove());
+      cameraMarkersRef.current = [];
+      trajectoryMarkersRef.current.forEach(({ marker }) => marker.remove());
+      trajectoryMarkersRef.current = [];
+      if (vehicleCursorRef.current) {
+        vehicleCursorRef.current.remove();
+        vehicleCursorRef.current = null;
+      }
+      map.remove();
+      mapRef.current = null;
+    };
+  }, []);
+
+  // 2. Fetch cameras and sample vehicles
   useEffect(() => {
     const loadInitialData = async () => {
       setLoadingCameras(true);
@@ -134,7 +171,207 @@ export function DashboardMapPage({ initialSearchPlate = null, onPlateSelect = nu
     loadInitialData();
   }, []);
 
-  // Update slider bounds when points change
+  // 3. Render / Update Camera Markers
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !isMapReady) return;
+
+    // Clear existing camera markers
+    cameraMarkersRef.current.forEach((m) => m.remove());
+    cameraMarkersRef.current = [];
+
+    if (showCameras && cameras.length > 0) {
+      cameras.forEach((cam) => {
+        const el = document.createElement("div");
+        el.className = "swiss-camera-marker cursor-pointer";
+        el.title = `${cam.name} (${cam.status})`;
+        el.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>`;
+
+        const popupHtml = `
+          <div class="p-3 font-mono text-xs max-w-xs">
+            <div class="font-bold text-white text-sm border-b border-neutral-800 pb-1 mb-2 flex items-center justify-between">
+              <span>${cam.name}</span>
+              <span class="text-[10px] text-emerald-400 uppercase bg-emerald-950/60 px-1 rounded">${cam.status}</span>
+            </div>
+            <div class="space-y-1 text-neutral-300">
+              <p class="text-[11px]"><span class="text-neutral-500">Location: </span>${cam.intersection_name || "Surveillance Point"}</p>
+              <p class="text-[11px]"><span class="text-neutral-500">Coordinates: </span>${cam.latitude.toFixed(4)}, ${cam.longitude.toFixed(4)}</p>
+              <p class="text-[11px]"><span class="text-neutral-500">Heading: </span>${cam.heading_deg}°</p>
+            </div>
+          </div>
+        `;
+
+        const popup = new maplibregl.Popup({ offset: 16, className: "swiss-maplibre-popup" })
+          .setHTML(popupHtml);
+
+        const marker = new maplibregl.Marker({ element: el })
+          .setLngLat([cam.longitude, cam.latitude])
+          .setPopup(popup)
+          .addTo(map);
+
+        cameraMarkersRef.current.push(marker);
+      });
+
+      // Fit to camera bounds if no trajectory is active yet
+      if (trajectory.points.length === 0) {
+        const bounds = new maplibregl.LngLatBounds();
+        cameras.forEach((c) => bounds.extend([c.longitude, c.latitude]));
+        map.fitBounds(bounds, { padding: 60, maxZoom: 13, duration: 600 });
+      }
+    }
+  }, [cameras, showCameras, isMapReady, trajectory.points.length]);
+
+  // 4. Update Trajectory Polylines (GeoJSON line layer)
+  const updateTrajectoryPolylines = useCallback(() => {
+    const map = mapRef.current;
+    if (!map || !isMapReady) return;
+
+    ensureTrajectoryLayers(map);
+
+    const features = trajectory.segments.map((seg) => ({
+      type: "Feature",
+      properties: {
+        id: seg.id,
+        speed: seg.speed,
+        color: seg.color,
+      },
+      geometry: {
+        type: "LineString",
+        coordinates: [
+          [seg.coordinates[0][1], seg.coordinates[0][0]], // [lng, lat]
+          [seg.coordinates[1][1], seg.coordinates[1][0]], // [lng, lat]
+        ],
+      },
+    }));
+
+    const source = map.getSource("trajectory-segments");
+    if (source) {
+      source.setData({
+        type: "FeatureCollection",
+        features,
+      });
+    }
+  }, [trajectory.segments, isMapReady]);
+
+  useEffect(() => {
+    updateTrajectoryPolylines();
+  }, [updateTrajectoryPolylines]);
+
+  // 5. Update Chronological Numbered Markers
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !isMapReady) return;
+
+    // Clear existing numbered markers
+    trajectoryMarkersRef.current.forEach(({ marker }) => marker.remove());
+    trajectoryMarkersRef.current = [];
+
+    trajectory.points.forEach((pt, idx) => {
+      const el = document.createElement("div");
+      el.className = `swiss-marker ${sliderIndex === idx ? "active" : ""}`;
+      el.innerHTML = `<span>${pt.markerIndex}</span>`;
+      el.addEventListener("click", () => {
+        setSliderIndex(idx);
+      });
+
+      const popupHtml = `
+        <div class="p-3 font-mono text-xs w-64 bg-neutral-900 rounded">
+          <div class="flex items-center justify-between border-b border-neutral-800 pb-1 mb-2">
+            <span class="font-bold text-white text-sm">Marker #${pt.markerIndex}</span>
+            <span class="text-[11px] font-semibold text-neutral-300 bg-neutral-800 px-1.5 py-0.5 rounded">${pt.plate}</span>
+          </div>
+          <div class="space-y-1.5 text-neutral-300 text-[11px]">
+            <div class="flex justify-between">
+              <span class="text-neutral-500">Camera:</span>
+              <span class="text-white font-semibold">${pt.cameraName}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-neutral-500">Timestamp:</span>
+              <span class="text-neutral-200">${new Date(pt.timestamp).toLocaleTimeString()}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-neutral-500">Dwell Time:</span>
+              <span class="text-neutral-200">${pt.dwellSeconds !== null && pt.dwellSeconds !== undefined ? `${Math.round(pt.dwellSeconds)}s` : "Terminal / Active"}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-neutral-500">Est. Speed:</span>
+              <span class="font-bold" style="color: ${getSpeedColor(pt.estimatedSpeed)}">${pt.estimatedSpeed !== null ? `${pt.estimatedSpeed} km/h` : "Origin Point"}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-neutral-500">OCR Conf:</span>
+              <span class="text-emerald-400 font-semibold">${pt.ocrConfidence !== null ? `${Math.round(pt.ocrConfidence * 100)}%` : "99%"}</span>
+            </div>
+          </div>
+          ${pt.snapshotUrl ? `
+            <div class="mt-3 border border-neutral-800 rounded overflow-hidden">
+              <img src="${pt.snapshotUrl}" alt="Plate snapshot" class="w-full h-24 object-cover bg-neutral-950" />
+            </div>
+          ` : `
+            <div class="mt-2.5 p-2 bg-neutral-950 border border-neutral-800 rounded flex items-center justify-center space-x-1 text-neutral-500 text-[10px]">
+              <svg class="w-3 h-3 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+              <span>Snapshot captured in DB</span>
+            </div>
+          `}
+        </div>
+      `;
+
+      const popup = new maplibregl.Popup({ offset: 18, className: "swiss-maplibre-popup" })
+        .setHTML(popupHtml);
+
+      const marker = new maplibregl.Marker({ element: el })
+        .setLngLat([pt.lng, pt.lat])
+        .setPopup(popup)
+        .addTo(map);
+
+      trajectoryMarkersRef.current.push({ marker, el, index: idx });
+    });
+
+    // Fit map bounds to points
+    if (trajectory.points.length > 0) {
+      const bounds = new maplibregl.LngLatBounds();
+      trajectory.points.forEach((p) => bounds.extend([p.lng, p.lat]));
+      map.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 800 });
+    }
+  }, [trajectory.points, isMapReady]);
+
+  // 6. Highlight active marker on slider change
+  useEffect(() => {
+    trajectoryMarkersRef.current.forEach(({ el, index }) => {
+      if (index === sliderIndex) {
+        el.classList.add("active");
+      } else {
+        el.classList.remove("active");
+      }
+    });
+  }, [sliderIndex]);
+
+  // 7. Vehicle Animated Cursor Marker
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !isMapReady) return;
+
+    const currentPoint = trajectory.points[sliderIndex] || null;
+
+    if (currentPoint) {
+      if (!vehicleCursorRef.current) {
+        const el = document.createElement("div");
+        el.className = "swiss-vehicle-cursor";
+        const marker = new maplibregl.Marker({ element: el })
+          .setLngLat([currentPoint.lng, currentPoint.lat])
+          .addTo(map);
+        vehicleCursorRef.current = marker;
+      } else {
+        vehicleCursorRef.current.setLngLat([currentPoint.lng, currentPoint.lat]);
+      }
+    } else {
+      if (vehicleCursorRef.current) {
+        vehicleCursorRef.current.remove();
+        vehicleCursorRef.current = null;
+      }
+    }
+  }, [sliderIndex, trajectory.points, isMapReady]);
+
+  // 8. Update slider bounds when points change
   useEffect(() => {
     if (trajectory.points.length > 0) {
       setSliderIndex(trajectory.points.length - 1);
@@ -143,7 +380,7 @@ export function DashboardMapPage({ initialSearchPlate = null, onPlateSelect = nu
     }
   }, [trajectory.points.length]);
 
-  // Handle timeline animation
+  // 9. Timeline Animation Interval
   useEffect(() => {
     if (isPlaying && trajectory.points.length > 1) {
       playIntervalRef.current = setInterval(() => {
@@ -184,9 +421,6 @@ export function DashboardMapPage({ initialSearchPlate = null, onPlateSelect = nu
   };
 
   const currentPoint = trajectory.points[sliderIndex] || null;
-
-  // Center around Chennai corridor (Kathipara to ORR)
-  const defaultCenter = [12.9675, 80.1491];
 
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem)] bg-neutral-950 overflow-hidden font-sans">
@@ -294,169 +528,9 @@ export function DashboardMapPage({ initialSearchPlate = null, onPlateSelect = nu
 
       {/* Main Map + Side Telemetry Grid */}
       <div className="flex-1 relative flex overflow-hidden">
-        {/* Leaflet Map Container */}
+        {/* MapLibre GL Container with OpenFreeMap Liberty style */}
         <div className="flex-1 relative z-0">
-          <MapContainer
-            center={defaultCenter}
-            zoom={12}
-            className="w-full h-full"
-            zoomControl={false}
-          >
-            {/* Dark Swiss Map Tiles */}
-            <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-              url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-            />
-
-            <MapBoundsUpdater points={trajectory.points} cameras={cameras} />
-
-            {/* Cameras Layer */}
-            {showCameras &&
-              cameras.map((cam) => (
-                <Marker
-                  key={`cam-${cam.id}`}
-                  position={[cam.latitude, cam.longitude]}
-                  icon={createCameraIcon(cam.name)}
-                >
-                  <Popup>
-                    <div className="p-3 font-mono text-xs max-w-xs">
-                      <div className="font-bold text-white text-sm border-b border-neutral-800 pb-1 mb-2 flex items-center justify-between">
-                        <span>{cam.name}</span>
-                        <span className="text-[10px] text-emerald-400 uppercase bg-emerald-950/60 px-1 rounded">
-                          {cam.status}
-                        </span>
-                      </div>
-                      <div className="space-y-1 text-neutral-300">
-                        <p className="text-[11px]">
-                          <span className="text-neutral-500">Location: </span>
-                          {cam.intersection_name || "Surveillance Point"}
-                        </p>
-                        <p className="text-[11px]">
-                          <span className="text-neutral-500">Coordinates: </span>
-                          {cam.latitude.toFixed(4)}, {cam.longitude.toFixed(4)}
-                        </p>
-                        <p className="text-[11px]">
-                          <span className="text-neutral-500">Heading: </span>
-                          {cam.heading_deg}°
-                        </p>
-                      </div>
-                    </div>
-                  </Popup>
-                </Marker>
-              ))}
-
-            {/* Color-Coded Trajectory Segments */}
-            {trajectory.segments.map((seg) => (
-              <Polyline
-                key={seg.id}
-                positions={seg.coordinates}
-                pathOptions={{
-                  color: seg.color,
-                  weight: 5,
-                  opacity: 0.9,
-                  lineJoin: "round",
-                }}
-              />
-            ))}
-
-            {/* Chronological Numbered Markers */}
-            {trajectory.points.map((pt, idx) => {
-              const isSelected = sliderIndex === idx;
-
-              return (
-                <Marker
-                  key={pt.id}
-                  position={[pt.lat, pt.lng]}
-                  icon={createNumberedIcon(pt.markerIndex, isSelected)}
-                >
-                  <Popup>
-                    <div className="p-3 font-mono text-xs w-64 bg-neutral-900 rounded">
-                      <div className="flex items-center justify-between border-b border-neutral-800 pb-1 mb-2">
-                        <span className="font-bold text-white text-sm">
-                          Marker #{pt.markerIndex}
-                        </span>
-                        <span className="text-[11px] font-semibold text-neutral-300 bg-neutral-800 px-1.5 py-0.5 rounded">
-                          {pt.plate}
-                        </span>
-                      </div>
-
-                      <div className="space-y-1.5 text-neutral-300 text-[11px]">
-                        <div className="flex justify-between">
-                          <span className="text-neutral-500">Camera:</span>
-                          <span className="text-white font-semibold">{pt.cameraName}</span>
-                        </div>
-
-                        <div className="flex justify-between">
-                          <span className="text-neutral-500">Timestamp:</span>
-                          <span className="text-neutral-200">
-                            {new Date(pt.timestamp).toLocaleTimeString()}
-                          </span>
-                        </div>
-
-                        <div className="flex justify-between">
-                          <span className="text-neutral-500">Dwell Time:</span>
-                          <span className="text-neutral-200">
-                            {pt.dwellSeconds !== null && pt.dwellSeconds !== undefined
-                              ? `${Math.round(pt.dwellSeconds)}s`
-                              : "Terminal / Active"}
-                          </span>
-                        </div>
-
-                        <div className="flex justify-between">
-                          <span className="text-neutral-500">Est. Speed:</span>
-                          <span
-                            className="font-bold"
-                            style={{ color: getSpeedColor(pt.estimatedSpeed) }}
-                          >
-                            {pt.estimatedSpeed !== null
-                              ? `${pt.estimatedSpeed} km/h`
-                              : "Origin Point"}
-                          </span>
-                        </div>
-
-                        <div className="flex justify-between">
-                          <span className="text-neutral-500">OCR Conf:</span>
-                          <span className="text-emerald-400 font-semibold">
-                            {pt.ocrConfidence !== null
-                              ? `${Math.round(pt.ocrConfidence * 100)}%`
-                              : "99%"}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Snapshot Image Preview */}
-                      {pt.snapshotUrl ? (
-                        <div className="mt-3 border border-neutral-800 rounded overflow-hidden">
-                          <img
-                            src={pt.snapshotUrl}
-                            alt={`Plate ${pt.plate} snapshot`}
-                            className="w-full h-24 object-cover bg-neutral-950"
-                            onError={(e) => {
-                              e.target.style.display = "none";
-                            }}
-                          />
-                        </div>
-                      ) : (
-                        <div className="mt-2.5 p-2 bg-neutral-950 border border-neutral-800 rounded flex items-center justify-center space-x-1 text-neutral-500 text-[10px]">
-                          <ImageIcon className="w-3 h-3" />
-                          <span>Snapshot captured in DB</span>
-                        </div>
-                      )}
-                    </div>
-                  </Popup>
-                </Marker>
-              );
-            })}
-
-            {/* Vehicle Animated Cursor */}
-            {currentPoint && (
-              <Marker
-                position={[currentPoint.lat, currentPoint.lng]}
-                icon={createVehicleCursorIcon()}
-                zIndexOffset={1200}
-              />
-            )}
-          </MapContainer>
+          <div ref={mapContainerRef} className="w-full h-full relative" />
         </div>
 
         {/* Side Telemetry & Inspection Dock */}

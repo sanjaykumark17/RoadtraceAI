@@ -88,3 +88,58 @@
   background: #0d0d0d !important;
   font-family: 'Inter', sans-serif !important;
 }
+
+/* MapLibre Dark Custom Popup */
+.maplibregl-popup-content {
+  background: #121212 !important;
+  color: #f5f5f5 !important;
+  border: 1px solid #2e2e2e !important;
+  border-radius: 6px !important;
+  padding: 0 !important;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.8) !important;
+}
+
+.maplibregl-popup-anchor-top .maplibregl-popup-tip {
+  border-bottom-color: #121212 !important;
+}
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip {
+  border-top-color: #121212 !important;
+}
+.maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: #121212 !important;
+}
+.maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: #121212 !important;
+}
+
+.maplibregl-popup-close-button {
+  color: #a3a3a3 !important;
+  padding: 4px 8px !important;
+  font-size: 16px !important;
+  border-radius: 0 6px 0 0 !important;
+}
+.maplibregl-popup-close-button:hover {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* MapLibre Controls in Swiss Dark Theme */
+.maplibregl-ctrl-group {
+  background: #171717 !important;
+  border: 1px solid #2e2e2e !important;
+  border-radius: 4px !important;
+  overflow: hidden !important;
+}
+.maplibregl-ctrl-group button {
+  border-bottom: 1px solid #2e2e2e !important;
+}
+.maplibregl-ctrl-group button:last-child {
+  border-bottom: none !important;
+}
+.maplibregl-ctrl-group button:hover {
+  background-color: #262626 !important;
+}
+.maplibregl-ctrl-icon {
+  filter: invert(1) hue-rotate(180deg) !important;
+}
+
