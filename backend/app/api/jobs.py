@@ -1,7 +1,8 @@
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import ValidationError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession as SAAsyncSession
 
 from app.core.deps import get_db, require_role
@@ -82,6 +83,15 @@ async def create_job(
     await db.commit()
     await db.refresh(job)
     return job
+
+
+@router.get("", response_model=List[JobOut])
+async def list_jobs(
+    db: SAAsyncSession = Depends(get_db),
+    _user: User = Depends(require_role("admin", "operator")),
+):
+    result = await db.execute(select(ProcessingJob).order_by(ProcessingJob.id.desc()))
+    return result.scalars().all()
 
 
 @router.get("/{job_id}", response_model=JobOut)

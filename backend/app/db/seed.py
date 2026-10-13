@@ -1,11 +1,15 @@
+from datetime import UTC, datetime, timedelta
 from geoalchemy2.elements import WKTElement
 from sqlalchemy import select
 
 from app.core.security import hash_password
 from app.db.session import SyncSession
 from app.models.camera import Camera
-from app.models.enums import CameraStatus, UserRole
+from app.models.enums import CameraStatus, JobStatus, UserRole, VehicleClass
+from app.models.processing_job import ProcessingJob
+from app.models.sighting import Sighting
 from app.models.user import User
+from app.models.vehicle import Vehicle
 
 SAMPLE_CAMERAS = [
     {
@@ -162,7 +166,68 @@ def seed_database() -> None:
 
         session.commit()
 
+        # Seed sample processing job if not present
+        job = session.query(ProcessingJob).filter_by(id=1).first()
+        if not job:
+            job = ProcessingJob(
+                id=1,
+                camera_id=1,
+                source_uri="corridor://gst-road-surveillance.mp4",
+                status=JobStatus.done,
+                frames_processed=1500,
+            )
+            session.add(job)
+            session.commit()
+
+        # Seed sample vehicle TN01TJ2026 trajectory
+        test_plate = "TN01TJ2026"
+        existing_vehicle = session.scalar(
+            select(Vehicle).where(Vehicle.plate_number == test_plate)
+        )
+        if not existing_vehicle:
+            base_time = datetime(2026, 10, 13, 10, 0, 0, tzinfo=UTC)
+            t1 = base_time
+            t2 = t1 + timedelta(minutes=10)        # ~31.6 km/h (<40 green)
+            t3 = t2 + timedelta(seconds=150)       # ~50.9 km/h (40-80 amber)
+            t4 = t3 + timedelta(seconds=72)        # ~97.5 km/h (>80 red)
+            t5 = t4 + timedelta(seconds=150)       # ~49.9 km/h (40-80 amber)
+
+            v = Vehicle(
+                plate_number=test_plate,
+                vehicle_class=VehicleClass.passenger_car,
+                first_seen=t1,
+                last_seen=t5,
+                sighting_count=5,
+            )
+            session.add(v)
+            session.flush()
+
+            cams = session.execute(
+                select(Camera).order_by(Camera.id).limit(5)
+            ).scalars().all()
+
+            if len(cams) >= 5:
+                timestamps = [t1, t2, t3, t4, t5]
+                confidences = [0.98, 0.94, 0.99, 0.91, 0.96]
+                for idx, (cam, ts, conf) in enumerate(zip(cams, timestamps, confidences, strict=False)):
+                    sighting = Sighting(
+                        vehicle_id=v.id,
+                        camera_id=cam.id,
+                        plate_number=test_plate,
+                        raw_plate_text=test_plate,
+                        ocr_confidence=conf,
+                        vehicle_class=VehicleClass.passenger_car,
+                        track_id=200 + idx,
+                        timestamp=ts,
+                        snapshot_path=f"snapshots/s{idx + 1}.jpg",
+                        frames_voted=10,
+                        job_id=job.id,
+                    )
+                    session.add(sighting)
+
+            session.commit()
+
 
 if __name__ == "__main__":
     seed_database()
-    print("Database seeded successfully: admin, operator, viewer users + 12 cameras.")
+    print("Database seeded successfully: admin, operator, viewer users + 12 cameras + TN01TJ2026 trajectory.")
