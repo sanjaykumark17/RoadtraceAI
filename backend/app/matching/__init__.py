@@ -1,4 +1,12 @@
 """Matching package exports."""
-from app.services.matching_service import MatchingService, matching_service
 
-__all__ = ["MatchingService", "matching_service"]
+from app.matching.haversine import est_speed_kmh, haversine_km
+from app.matching.matcher import MatchResult, get_vehicle_last_sighting, match
+
+__all__ = [
+    "haversine_km",
+    "est_speed_kmh",
+    "MatchResult",
+    "get_vehicle_last_sighting",
+    "match",
+]

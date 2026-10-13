@@ -1,30 +1,51 @@
-"""Matching service stub (to be fully implemented in Step 9)."""
-import logging
-from typing import Any, Optional
+"""Matching service orchestrating the 3-tier matcher."""
 
+import logging
+from typing import Any, Dict, Optional
+
+from sqlalchemy.ext.asyncio import AsyncSession as SAAsyncSession
+
+from app.db.session import AsyncSession
+from app.matching.matcher import MatchResult, match
 from app.models.sighting import Sighting
 
 logger = logging.getLogger("roadtrace.matching")
 
 
 class MatchingService:
-    """Stub matching service for spatio-temporal route and candidate matching."""
+    """Service orchestrating spatio-temporal vehicle matching and alert triggers."""
 
     async def ingest_sighting(
-        self, sighting: Sighting, db: Optional[Any] = None
-    ) -> dict[str, Any]:
-        """Ingest a newly detected plate sighting into the matching engine."""
+        self,
+        sighting: Sighting,
+        db: Optional[SAAsyncSession] = None,
+    ) -> Dict[str, Any]:
+        """Ingest and match a newly created plate sighting.
+
+        Coordinates exact, fuzzy-kinematic, or new-vehicle matching
+        and active alert evaluation in a single atomic database transaction.
+        """
+        if db is not None:
+            result: MatchResult = await match(sighting, db)
+        else:
+            async with AsyncSession() as session:
+                result = await match(sighting, session)
+
         logger.info(
-            "matching_service: ingested sighting id=%s plate=%s cam=%s conf=%.3f",
-            getattr(sighting, "id", None),
-            getattr(sighting, "plate_number", ""),
-            getattr(sighting, "camera_id", None),
-            getattr(sighting, "ocr_confidence", 0.0),
+            f"MatchingService: ingested sighting {sighting.id} plate {sighting.plate_number} "
+            f"matched to vehicle {result.vehicle.id} ({result.vehicle.plate_number}) "
+            f"tier={result.tier} triggers={result.triggers_created}"
         )
+
         return {
             "status": "ingested",
-            "sighting_id": getattr(sighting, "id", None),
-            "plate_number": getattr(sighting, "plate_number", ""),
+            "tier": result.tier,
+            "vehicle_id": result.vehicle.id,
+            "plate_number": result.vehicle.plate_number,
+            "speed_kmh": result.speed_kmh,
+            "flag": result.flag,
+            "triggers_created": result.triggers_created,
+            "sighting_id": sighting.id,
         }
 
 
