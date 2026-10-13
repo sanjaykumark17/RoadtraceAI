@@ -5,7 +5,8 @@ ml/data/
 snapshots/
 node_modules/
 __pycache__/
-results/
+results/*
+!results/table3.csv
 *.pyc
 .pytest_cache/
 dist/
