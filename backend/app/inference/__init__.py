@@ -5,6 +5,18 @@ from app.inference.detector import (
     get_detector,
 )
 from app.inference.ingest import FrameSource
+from app.inference.plate_ocr import (
+    DIGIT_TO_LETTER,
+    LETTER_TO_DIGIT,
+    OCR_ALLOWLIST,
+    OCRReaderSingleton,
+    PlateDetectorSingleton,
+    PlateVoter,
+    VoteResult,
+    normalize_plate,
+    process_vehicle_crop_for_plate,
+    read_plate_text,
+)
 from app.inference.preprocess import (
     blur_score,
     enhance_plate,
@@ -36,4 +48,14 @@ __all__ = [
     "VehicleTracker",
     "get_tracker",
     "reset_trackers",
+    "normalize_plate",
+    "PlateVoter",
+    "VoteResult",
+    "process_vehicle_crop_for_plate",
+    "read_plate_text",
+    "PlateDetectorSingleton",
+    "OCRReaderSingleton",
+    "DIGIT_TO_LETTER",
+    "LETTER_TO_DIGIT",
+    "OCR_ALLOWLIST",
 ]
