@@ -97,12 +97,12 @@ SAMPLE_CAMERAS = [
 
 def seed_database() -> None:
     with SyncSession() as session:
-        # Seed 1 admin user
+        # Seed admin user
         admin_email = "admin@roadtrace.ai"
-        existing_user = session.scalar(
+        existing_admin = session.scalar(
             select(User).where(User.email == admin_email)
         )
-        if not existing_user:
+        if not existing_admin:
             admin = User(
                 email=admin_email,
                 password_hash=hash_password("admin123"),
@@ -111,7 +111,35 @@ def seed_database() -> None:
             )
             session.add(admin)
 
-        # Seed 12 sample cameras
+        # Seed operator user
+        operator_email = "operator@roadtrace.ai"
+        existing_operator = session.scalar(
+            select(User).where(User.email == operator_email)
+        )
+        if not existing_operator:
+            operator = User(
+                email=operator_email,
+                password_hash=hash_password("operator123"),
+                role=UserRole.operator,
+                is_active=True,
+            )
+            session.add(operator)
+
+        # Seed viewer user
+        viewer_email = "viewer@roadtrace.ai"
+        existing_viewer = session.scalar(
+            select(User).where(User.email == viewer_email)
+        )
+        if not existing_viewer:
+            viewer = User(
+                email=viewer_email,
+                password_hash=hash_password("viewer123"),
+                role=UserRole.viewer,
+                is_active=True,
+            )
+            session.add(viewer)
+
+        # Seed sample cameras
         for cam_data in SAMPLE_CAMERAS:
             existing_cam = session.scalar(
                 select(Camera).where(Camera.name == cam_data["name"])
@@ -137,4 +165,4 @@ def seed_database() -> None:
 
 if __name__ == "__main__":
     seed_database()
-    print("Database seeded successfully: 1 admin user + 12 cameras.")
+    print("Database seeded successfully: admin, operator, viewer users + 12 cameras.")
