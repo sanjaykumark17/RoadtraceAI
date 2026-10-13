@@ -4,11 +4,11 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.core.config import settings
 from app.db.seed import seed_database
-from app.db.session import AsyncSession
+from app.db.session import AsyncSession, SyncSession
 from app.matching.haversine import est_speed_kmh, haversine_km
 from app.matching.matcher import match
 from app.models.alert import Alert
@@ -23,6 +23,29 @@ from app.services.matching_service import matching_service
 @pytest.fixture(autouse=True, scope="module")
 def setup_seed():
     seed_database()
+    with SyncSession() as session:
+        session.execute(
+            text("""
+            DELETE FROM alert_triggers;
+            DELETE FROM sightings WHERE plate_number LIKE 'TN01AB%'
+               OR plate_number LIKE 'DL01AL%'
+               OR plate_number LIKE 'TN09A%'
+               OR plate_number LIKE 'TN09B%'
+               OR plate_number LIKE 'KA05ZZ%'
+               OR plate_number LIKE 'TN09SP%'
+               OR plate_number LIKE 'MH02CD%';
+            DELETE FROM vehicles WHERE plate_number LIKE 'TN01AB%'
+               OR plate_number LIKE 'DL01AL%'
+               OR plate_number LIKE 'TN09A%'
+               OR plate_number LIKE 'TN09B%'
+               OR plate_number LIKE 'KA05ZZ%'
+               OR plate_number LIKE 'TN09SP%'
+               OR plate_number LIKE 'MH02CD%';
+            DELETE FROM sightings WHERE camera_id > 12;
+            DELETE FROM cameras WHERE id > 12;
+        """)
+        )
+        session.commit()
 
 
 def test_haversine_known_distances():
@@ -296,6 +319,19 @@ async def test_matcher_tier_2_rejected_when_impossible_speed_creates_tier_3_new(
         assert res.tier == "new"
         assert res.vehicle.plate_number == noisy_plate
         assert s2.vehicle_id == res.vehicle.id
+
+        await session.delete(s2)
+        await session.delete(res.vehicle)
+        s1_obj = await session.get(Sighting, s1.id)
+        if s1_obj:
+            await session.delete(s1_obj)
+        v_obj = await session.get(Vehicle, v.id)
+        if v_obj:
+            await session.delete(v_obj)
+        c_obj = await session.get(Camera, dist_cam_id)
+        if c_obj:
+            await session.delete(c_obj)
+        await session.commit()
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import api_router
+from app.api.ws import router as ws_router
 
 app = FastAPI(
     title="RoadTrace AI",
@@ -24,3 +25,4 @@ async def health():
 
 
 app.include_router(api_router)
+app.include_router(ws_router)

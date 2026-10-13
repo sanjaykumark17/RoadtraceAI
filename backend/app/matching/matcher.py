@@ -161,18 +161,19 @@ async def match(
                     before_timestamp=new_sighting.timestamp,
                     exclude_sighting_id=new_sighting.id,
                 )
-                cand_speed = 0.0
-                if last_info is not None:
-                    last_sighting, last_lat, last_lon = last_info
-                    cand_speed = est_speed_kmh(
-                        last_lat,
-                        last_lon,
-                        last_sighting.timestamp,
-                        new_lat,
-                        new_lon,
-                        new_sighting.timestamp,
-                        radius_km=settings.earth_radius_km,
-                    )
+                if last_info is None:
+                    continue
+
+                last_sighting, last_lat, last_lon = last_info
+                cand_speed = est_speed_kmh(
+                    last_lat,
+                    last_lon,
+                    last_sighting.timestamp,
+                    new_lat,
+                    new_lon,
+                    new_sighting.timestamp,
+                    radius_km=settings.earth_radius_km,
+                )
 
                 # Kinematic validation gate: accept ONLY if speed <= 150 km/h
                 if cand_speed <= settings.v_max_kmh:
