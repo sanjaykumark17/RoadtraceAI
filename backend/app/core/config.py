@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     input_size: int = 640
     vehicle_conf: float = 0.45
     nms_iou: float = 0.50
+    yolo_weights: str = "yolov8m.pt"
 
     # image preprocessing
     blur_tau: int = 100
