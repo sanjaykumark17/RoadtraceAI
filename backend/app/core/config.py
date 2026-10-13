@@ -39,5 +39,10 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
     roles: list[str] = ["admin", "operator", "viewer"]
 
+    # worker settings
+    worker_concurrency: int = 1
+    worker_poll_interval: float = 1.0
+    snapshots_dir: str = "snapshots"
+
 
 settings = Settings()
