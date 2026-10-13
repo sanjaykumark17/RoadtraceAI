@@ -1,0 +1,117 @@
+# ==============================================================================
+# RoadTrace AI - Production Docker Compose Stack
+# Multi-stage containers with healthchecks, persistent volumes, and secure networks
+# ==============================================================================
+
+services:
+  postgres:
+    image: postgis/postgis:15-3.4
+    container_name: roadtrace-postgres-prod
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-roadtrace}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-roadtrace}
+      POSTGRES_DB: ${POSTGRES_DB:-roadtrace}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-roadtrace} -d ${POSTGRES_DB:-roadtrace}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - roadtrace_prod_net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: roadtrace-backend-prod
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      RT_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-roadtrace}:${POSTGRES_PASSWORD:-roadtrace}@postgres:5432/${POSTGRES_DB:-roadtrace}
+      RT_DATABASE_URL_SYNC: postgresql+psycopg2://${POSTGRES_USER:-roadtrace}:${POSTGRES_PASSWORD:-roadtrace}@postgres:5432/${POSTGRES_DB:-roadtrace}
+      RT_SECRET_KEY: ${RT_SECRET_KEY:-change-me-in-production}
+      RT_CORS_ORIGINS: ${RT_CORS_ORIGINS:-http://localhost,http://localhost:80,http://localhost:5173}
+      RT_AUTH_RATE_LIMIT_PER_MINUTE: ${RT_AUTH_RATE_LIMIT_PER_MINUTE:-60}
+      RT_AUTH_RATE_LIMIT_ENABLED: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:8000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - roadtrace_prod_net
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    container_name: roadtrace-worker-prod
+    restart: always
+    environment:
+      RT_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-roadtrace}:${POSTGRES_PASSWORD:-roadtrace}@postgres:5432/${POSTGRES_DB:-roadtrace}
+      RT_DATABASE_URL_SYNC: postgresql+psycopg2://${POSTGRES_USER:-roadtrace}:${POSTGRES_PASSWORD:-roadtrace}@postgres:5432/${POSTGRES_DB:-roadtrace}
+      RT_SECRET_KEY: ${RT_SECRET_KEY:-change-me-in-production}
+      RT_WORKER_CONCURRENCY: ${RT_WORKER_CONCURRENCY:-2}
+      RT_SNAPSHOTS_DIR: /app/snapshots
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    volumes:
+      - weights_prod:/app/weights
+      - snapshots_prod:/app/snapshots
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import torch; print(torch.__version__)\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - roadtrace_prod_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: roadtrace-frontend-prod
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:80/ || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - roadtrace_prod_net
+
+volumes:
+  pgdata_prod:
+    name: roadtrace_pgdata_prod
+  weights_prod:
+    name: roadtrace_weights_prod
+  snapshots_prod:
+    name: roadtrace_snapshots_prod
+
+networks:
+  roadtrace_prod_net:
+    name: roadtrace_prod_net
+    driver: bridge

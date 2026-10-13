@@ -384,3 +384,25 @@ async def test_audit_logging_for_login_search_and_trace(
             )
         ).all()
         assert len(trace_logs) >= 1
+
+
+@pytest.mark.asyncio
+async def test_auth_rate_limiting(client: httpx.AsyncClient):
+    from app.core.rate_limiter import auth_limiter
+    auth_limiter.reset()
+
+    # Exhaust limit for a specific client IP
+    test_ip = "198.51.100.99"
+    for _ in range(settings.auth_rate_limit_per_minute):
+        auth_limiter.is_allowed(test_ip, max_requests=settings.auth_rate_limit_per_minute)
+
+    # Next attempt with that client IP triggers 429
+    resp = await client.post(
+        "/api/v1/auth/login",
+        json={"email": "admin@roadtrace.ai", "password": "admin123"},
+        headers={"x-forwarded-for": test_ip},
+    )
+    assert resp.status_code == 429
+    assert resp.headers.get("retry-after") == "60"
+    auth_limiter.reset()
+

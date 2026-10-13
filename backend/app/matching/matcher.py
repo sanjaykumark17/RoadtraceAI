@@ -240,7 +240,7 @@ async def match(
     # -------------------------------------------------------------
     alert_plates = {matched_vehicle.plate_number, plate}
     alert_stmt = select(Alert).where(
-        Alert.is_active == True,
+        Alert.is_active.is_(True),
         Alert.plate_number.in_(list(alert_plates)),
     )
     alert_res = await session.execute(alert_stmt)

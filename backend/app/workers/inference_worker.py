@@ -21,12 +21,10 @@ import logging
 import os
 from pathlib import Path
 import signal
-import sys
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, Optional, Set
 
 import cv2
 from geoalchemy2.elements import WKTElement
-import numpy as np
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession as SAAsyncSession
 

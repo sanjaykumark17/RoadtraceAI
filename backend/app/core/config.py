@@ -38,6 +38,22 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
     roles: list[str] = ["admin", "operator", "viewer"]
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000"
+    frontend_url: str = ""
+    auth_rate_limit_per_minute: int = 60
+    auth_rate_limit_enabled: bool = True
+
+    @property
+    def allowed_origins(self) -> list[str]:
+        combined = set()
+        for source in (self.cors_origins, self.frontend_url):
+            if not source:
+                continue
+            for item in source.split(","):
+                cleaned = item.strip()
+                if cleaned:
+                    combined.add(cleaned)
+        return list(combined) if combined else ["*"]
 
     # worker settings
     worker_concurrency: int = 1

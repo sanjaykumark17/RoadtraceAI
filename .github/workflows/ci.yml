@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Code Quality & Linting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install linter
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff
+
+      - name: Run Ruff Lint Check
+        run: |
+          ruff check backend/app
+
+  backend:
+    name: Backend Pytest Suite
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:15-3.4
+        env:
+          POSTGRES_USER: roadtrace
+          POSTGRES_PASSWORD: roadtrace
+          POSTGRES_DB: roadtrace
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --extra-index-url https://download.pytorch.org/whl/cpu torch torchvision
+          pip install -r requirements.txt
+
+      - name: Run Pytest Test Suite
+        env:
+          RT_DATABASE_URL: postgresql+asyncpg://roadtrace:roadtrace@localhost:5432/roadtrace
+          RT_DATABASE_URL_SYNC: postgresql+psycopg2://roadtrace:roadtrace@localhost:5432/roadtrace
+          RT_SECRET_KEY: test-secret-key-32-chars-long-abcde
+          PYTHONPATH: ".:backend"
+        run: |
+          pytest backend/tests -v
+
+  frontend:
+    name: Frontend Vitest & Vite Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install npm dependencies
+        run: npm ci || npm install
+
+      - name: Run Vitest Unit & Integration Tests
+        run: npm test
+
+      - name: Build Production Assets
+        run: npm run build

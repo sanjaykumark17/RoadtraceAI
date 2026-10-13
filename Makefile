@@ -6,6 +6,12 @@ up:
 down:
 	docker compose down -v
 
+prod-up:
+	docker compose -f docker-compose.prod.yml up -d --build
+
+prod-down:
+	docker compose -f docker-compose.prod.yml down -v
+
 test:
 	cd backend && python -m pytest tests/ -v
 

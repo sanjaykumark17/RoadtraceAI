@@ -1,9 +1,8 @@
 from dataclasses import dataclass
 from pathlib import Path
 import re
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 
-import cv2
 import easyocr
 import numpy as np
 import torch

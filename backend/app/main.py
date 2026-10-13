@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import api_router
 from app.api.ws import router as ws_router
+from app.core.config import settings
 
 app = FastAPI(
     title="RoadTrace AI",
@@ -12,7 +13,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

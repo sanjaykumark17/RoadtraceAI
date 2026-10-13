@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession as SAAsyncSession
 
 from app.core.deps import get_current_user, get_db
+from app.core.rate_limiter import check_auth_rate_limit
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -18,7 +19,7 @@ from app.services.audit import write_audit_log
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse, dependencies=[Depends(check_auth_rate_limit)])
 async def login(
     request: Request,
     body: Optional[LoginRequest] = None,
@@ -80,7 +81,7 @@ async def login(
     return TokenResponse(access_token=access, refresh_token=refresh)
 
 
-@router.post("/refresh", response_model=TokenResponse)
+@router.post("/refresh", response_model=TokenResponse, dependencies=[Depends(check_auth_rate_limit)])
 async def refresh(
     body: RefreshRequest,
     db: SAAsyncSession = Depends(get_db),
