@@ -1,0 +1,16 @@
+.env
+*.pt
+ml/data/
+*.mp4
+snapshots/
+node_modules/
+__pycache__/
+results/
+*.pyc
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+.venv/
+venv/
+.ruff_cache/
