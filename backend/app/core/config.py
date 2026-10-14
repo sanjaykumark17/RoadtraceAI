@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     v_max_kmh: float = 150.0
     earth_radius_km: float = 6371.0
 
+    # OSRM road snapping & routing
+    osrm_url: str = "http://localhost:5000"
+    osrm_timeout: float = 2.0
+
     # auth
     secret_key: str = "change-me-in-production"
     algorithm: str = "HS256"

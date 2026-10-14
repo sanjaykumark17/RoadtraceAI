@@ -79,3 +79,32 @@ def est_speed_kmh(
 
     delta_hours = delta_seconds / 3600.0
     return float(distance_km / delta_hours)
+
+
+def road_distance_km(
+    lat1: float,
+    lon1: float,
+    lat2: float,
+    lon2: float,
+    radius_km: Optional[float] = None,
+    osrm_url: Optional[str] = None,
+    timeout: Optional[float] = None,
+) -> float:
+    """Calculate road distance in kilometers using OSRM /table/ endpoint with Haversine fallback.
+
+    If lat1 == lat2 and lon1 == lon2, returns 0.0 immediately.
+    If OSRM is reachable and returns a valid distance, returns road distance in km.
+    If OSRM is unreachable, times out, or returns an error, falls back to haversine_km.
+    """
+    if lat1 == lat2 and lon1 == lon2:
+        return 0.0
+
+    from app.matching.road_distance import query_osrm_table_distance
+
+    dist = query_osrm_table_distance(
+        lat1, lon1, lat2, lon2, osrm_url=osrm_url, timeout=timeout
+    )
+    if dist is not None:
+        return dist
+
+    return haversine_km(lat1, lon1, lat2, lon2, radius_km=radius_km)

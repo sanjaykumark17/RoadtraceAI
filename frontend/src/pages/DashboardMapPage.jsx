@@ -9,15 +9,75 @@ import {
   Pause,
   RotateCcw,
   Camera as CameraIcon,
-  ImageIcon,
+  Layers,
 } from "lucide-react";
 
 // Default center: Chennai Corridor (Kathipara - ORR)
 const DEFAULT_CENTER = [80.1491, 12.9675]; // [lng, lat]
-const MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 
+// CartoDB Dark Matter vector GL style as requested in Upgrade 2
+const MAP_STYLE_URL = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
+const FALLBACK_STYLE_URL = "https://tiles.openfreemap.org/styles/dark";
+
+/**
+ * Calculate geographical bearing between two points in degrees (0 = North, 90 = East).
+ */
+function calculateBearing(lat1, lon1, lat2, lon2) {
+  const phi1 = (lat1 * Math.PI) / 180;
+  const phi2 = (lat2 * Math.PI) / 180;
+  const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
+
+  const y = Math.sin(deltaLambda) * Math.cos(phi2);
+  const x =
+    Math.cos(phi1) * Math.sin(phi2) -
+    Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLambda);
+  const brng = (Math.atan2(y, x) * 180) / Math.PI;
+  return (brng + 360) % 360;
+}
+
+/**
+ * Programmatically generate directional arrow icon for MapLibre GL symbol-placement: "line".
+ * Points East (along positive X axis, matching 0° line traversal direction).
+ */
+function registerTrajectoryArrowImage(map) {
+  if (!map || map.hasImage("trajectory-arrow")) return;
+
+  const size = 32;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+
+  ctx.clearRect(0, 0, size, size);
+
+  // Sleek directional chevron
+  ctx.beginPath();
+  ctx.moveTo(size * 0.18, size * 0.22);
+  ctx.lineTo(size * 0.82, size * 0.5);
+  ctx.lineTo(size * 0.18, size * 0.78);
+  ctx.lineTo(size * 0.35, size * 0.5);
+  ctx.closePath();
+
+  ctx.fillStyle = "#ffffff";
+  ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
+  ctx.shadowBlur = 4;
+  ctx.fill();
+
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.85)";
+  ctx.stroke();
+
+  const imageData = ctx.getImageData(0, 0, size, size);
+  map.addImage("trajectory-arrow", imageData);
+}
+
+/**
+ * Ensure trajectory GeoJSON source and layers (glow, casing, lines, directional arrows) exist on the map.
+ */
 function ensureTrajectoryLayers(map) {
   if (!map || !map.isStyleLoaded()) return;
+
+  registerTrajectoryArrowImage(map);
 
   if (!map.getSource("trajectory-segments")) {
     map.addSource("trajectory-segments", {
@@ -28,6 +88,25 @@ function ensureTrajectoryLayers(map) {
       },
     });
 
+    // Layer 1: Pulsing glow layer for high-speed (> 80 km/h) segments
+    map.addLayer({
+      id: "trajectory-glow",
+      type: "line",
+      source: "trajectory-segments",
+      filter: [">=", ["get", "speed"], 80],
+      layout: {
+        "line-join": "round",
+        "line-cap": "round",
+      },
+      paint: {
+        "line-color": "#ef4444",
+        "line-width": 14,
+        "line-opacity": 0.5,
+        "line-blur": 6,
+      },
+    });
+
+    // Layer 2: Black casing for high contrast on dark tiles
     map.addLayer({
       id: "trajectory-casing",
       type: "line",
@@ -38,11 +117,12 @@ function ensureTrajectoryLayers(map) {
       },
       paint: {
         "line-color": "#000000",
-        "line-width": 7,
-        "line-opacity": 0.8,
+        "line-width": 7.5,
+        "line-opacity": 0.85,
       },
     });
 
+    // Layer 3: Main velocity-colored trajectory lines
     map.addLayer({
       id: "trajectory-lines",
       type: "line",
@@ -56,6 +136,169 @@ function ensureTrajectoryLayers(map) {
         "line-width": 4.5,
         "line-opacity": 0.95,
       },
+    });
+
+    // Layer 4: Directional arrows along line traversal
+    map.addLayer({
+      id: "trajectory-arrows",
+      type: "symbol",
+      source: "trajectory-segments",
+      layout: {
+        "symbol-placement": "line",
+        "symbol-spacing": 65,
+        "icon-image": "trajectory-arrow",
+        "icon-size": 0.55,
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+        "icon-rotation-alignment": "map",
+      },
+    });
+  }
+}
+
+/**
+ * Ensure camera clustering GeoJSON source and cluster/unclustered layers exist on the map.
+ */
+function ensureCameraLayers(map, onCameraClick) {
+  if (!map || !map.isStyleLoaded()) return;
+
+  if (!map.getSource("cameras-source")) {
+    map.addSource("cameras-source", {
+      type: "geojson",
+      data: {
+        type: "FeatureCollection",
+        features: [],
+      },
+      cluster: true,
+      clusterMaxZoom: 14,
+      clusterRadius: 50,
+    });
+
+    // 1. Cluster circles with stepped colors & sizes
+    map.addLayer({
+      id: "camera-clusters",
+      type: "circle",
+      source: "cameras-source",
+      filter: ["has", "point_count"],
+      paint: {
+        "circle-color": [
+          "step",
+          ["get", "point_count"],
+          "#3b82f6", // blue < 5
+          5,
+          "#10b981", // emerald 5 - 14
+          15,
+          "#f59e0b", // amber 15+
+        ],
+        "circle-radius": [
+          "step",
+          ["get", "point_count"],
+          18,
+          5,
+          24,
+          15,
+          30,
+        ],
+        "circle-stroke-width": 2,
+        "circle-stroke-color": "#ffffff",
+      },
+    });
+
+    // 2. Cluster count text
+    map.addLayer({
+      id: "camera-cluster-count",
+      type: "symbol",
+      source: "cameras-source",
+      filter: ["has", "point_count"],
+      layout: {
+        "text-field": "{point_count_abbreviated}",
+        "text-font": ["DIN Offc Pro Medium", "Arial Unicode MS Bold"],
+        "text-size": 12,
+      },
+      paint: {
+        "text-color": "#ffffff",
+      },
+    });
+
+    // 3. Unclustered camera marker outer circle
+    map.addLayer({
+      id: "camera-unclustered",
+      type: "circle",
+      source: "cameras-source",
+      filter: ["!", ["has", "point_count"]],
+      paint: {
+        "circle-color": "#171717",
+        "circle-radius": 7.5,
+        "circle-stroke-width": 2,
+        "circle-stroke-color": [
+          "case",
+          ["==", ["get", "status"], "active"],
+          "#10b981",
+          "#737373",
+        ],
+      },
+    });
+
+    // 4. Unclustered camera inner core dot
+    map.addLayer({
+      id: "camera-unclustered-inner",
+      type: "circle",
+      source: "cameras-source",
+      filter: ["!", ["has", "point_count"]],
+      paint: {
+        "circle-color": [
+          "case",
+          ["==", ["get", "status"], "active"],
+          "#34d399",
+          "#a3a3a3",
+        ],
+        "circle-radius": 3,
+      },
+    });
+
+    // Interactivity: Cluster click zooms in
+    map.on("click", "camera-clusters", (e) => {
+      const features = map.queryRenderedFeatures(e.point, {
+        layers: ["camera-clusters"],
+      });
+      if (!features.length) return;
+      const clusterId = features[0].properties.cluster_id;
+      const source = map.getSource("cameras-source");
+      if (source && source.getClusterExpansionZoom) {
+        source.getClusterExpansionZoom(clusterId, (err, zoom) => {
+          if (err) return;
+          map.easeTo({
+            center: features[0].geometry.coordinates,
+            zoom: zoom + 0.5,
+            duration: 500,
+          });
+        });
+      }
+    });
+
+    // Interactivity: Unclustered camera click displays rich popup
+    map.on("click", "camera-unclustered", (e) => {
+      if (!e.features || !e.features.length) return;
+      const feat = e.features[0];
+      const coords = feat.geometry.coordinates.slice();
+      const props = feat.properties;
+      if (onCameraClick) {
+        onCameraClick(props, coords);
+      }
+    });
+
+    // Cursor pointer on hover
+    map.on("mouseenter", "camera-clusters", () => {
+      map.getCanvas().style.cursor = "pointer";
+    });
+    map.on("mouseleave", "camera-clusters", () => {
+      map.getCanvas().style.cursor = "";
+    });
+    map.on("mouseenter", "camera-unclustered", () => {
+      map.getCanvas().style.cursor = "pointer";
+    });
+    map.on("mouseleave", "camera-unclustered", () => {
+      map.getCanvas().style.cursor = "";
     });
   }
 }
@@ -96,14 +339,15 @@ export function DashboardMapPage({ initialSearchPlate = null, onPlateSelect = nu
   const [sliderIndex, setSliderIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
-  const playIntervalRef = useRef(null);
+  const animFrameRef = useRef(null);
+  const glowAnimFrameRef = useRef(null);
 
   // Marker references for MapLibre
-  const cameraMarkersRef = useRef([]);
   const trajectoryMarkersRef = useRef([]);
   const vehicleCursorRef = useRef(null);
+  const cameraPopupRef = useRef(null);
 
-  // 1. Initialize MapLibre GL with OpenFreeMap Liberty style
+  // 1. Initialize MapLibre GL with Carto Dark Matter Vector Style
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
@@ -117,12 +361,46 @@ export function DashboardMapPage({ initialSearchPlate = null, onPlateSelect = nu
 
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
 
+    const handleCameraPopup = (props, coords) => {
+      if (cameraPopupRef.current) {
+        cameraPopupRef.current.remove();
+      }
+      const popupHtml = `
+        <div class="p-3 font-mono text-xs max-w-xs">
+          <div class="font-bold text-white text-sm border-b border-neutral-800 pb-1 mb-2 flex items-center justify-between">
+            <span>${props.name}</span>
+            <span class="text-[10px] text-emerald-400 uppercase bg-emerald-950/60 px-1 rounded">${props.status}</span>
+          </div>
+          <div class="space-y-1 text-neutral-300">
+            <p class="text-[11px]"><span class="text-neutral-500">Location: </span>${props.intersection_name || "Surveillance Point"}</p>
+            <p class="text-[11px]"><span class="text-neutral-500">Coordinates: </span>${Number(coords[1]).toFixed(4)}, ${Number(coords[0]).toFixed(4)}</p>
+            <p class="text-[11px]"><span class="text-neutral-500">Heading: </span>${props.heading_deg}°</p>
+          </div>
+        </div>
+      `;
+      cameraPopupRef.current = new maplibregl.Popup({ offset: 12, className: "swiss-maplibre-popup" })
+        .setLngLat(coords)
+        .setHTML(popupHtml)
+        .addTo(map);
+    };
+
     map.on("load", () => {
       ensureTrajectoryLayers(map);
+      ensureCameraLayers(map, handleCameraPopup);
       setIsMapReady(true);
     });
 
-    // Resize observer to ensure responsive map resizing
+    // Handle fallback dark style if Carto is slow or unreachable
+    map.on("error", (e) => {
+      if (e?.error?.message?.includes("style") && map.getStyle() !== FALLBACK_STYLE_URL) {
+        console.warn("Attempting fallback dark style:", FALLBACK_STYLE_URL);
+        try {
+          map.setStyle(FALLBACK_STYLE_URL);
+        } catch {}
+      }
+    });
+
+    // Responsive map resize observer
     const resizeObserver = new ResizeObserver(() => {
       if (map) map.resize();
     });
@@ -133,20 +411,23 @@ export function DashboardMapPage({ initialSearchPlate = null, onPlateSelect = nu
     return () => {
       setIsMapReady(false);
       resizeObserver.disconnect();
-      cameraMarkersRef.current.forEach((m) => m.remove());
-      cameraMarkersRef.current = [];
+      if (cameraPopupRef.current) {
+        cameraPopupRef.current.remove();
+      }
       trajectoryMarkersRef.current.forEach(({ marker }) => marker.remove());
       trajectoryMarkersRef.current = [];
       if (vehicleCursorRef.current) {
         vehicleCursorRef.current.remove();
         vehicleCursorRef.current = null;
       }
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+      if (glowAnimFrameRef.current) cancelAnimationFrame(glowAnimFrameRef.current);
       map.remove();
       mapRef.current = null;
     };
   }, []);
 
-  // 2. Fetch cameras and sample vehicles
+  // 2. Fetch cameras and sample seeded vehicles
   useEffect(() => {
     const loadInitialData = async () => {
       setLoadingCameras(true);
@@ -171,78 +452,83 @@ export function DashboardMapPage({ initialSearchPlate = null, onPlateSelect = nu
     loadInitialData();
   }, []);
 
-  // 3. Render / Update Camera Markers
+  // 3. Update Camera Clustering GeoJSON Source & Visibility
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !isMapReady) return;
 
-    // Clear existing camera markers
-    cameraMarkersRef.current.forEach((m) => m.remove());
-    cameraMarkersRef.current = [];
+    const source = map.getSource("cameras-source");
+    if (source) {
+      const cameraFeatures = cameras.map((cam) => ({
+        type: "Feature",
+        geometry: {
+          type: "Point",
+          coordinates: [Number(cam.longitude), Number(cam.latitude)],
+        },
+        properties: {
+          id: cam.id,
+          name: cam.name,
+          status: cam.status,
+          intersection_name: cam.intersection_name,
+          heading_deg: cam.heading_deg,
+          latitude: cam.latitude,
+          longitude: cam.longitude,
+        },
+      }));
 
-    if (showCameras && cameras.length > 0) {
-      cameras.forEach((cam) => {
-        const el = document.createElement("div");
-        el.className = "swiss-camera-marker cursor-pointer";
-        el.title = `${cam.name} (${cam.status})`;
-        el.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>`;
-
-        const popupHtml = `
-          <div class="p-3 font-mono text-xs max-w-xs">
-            <div class="font-bold text-white text-sm border-b border-neutral-800 pb-1 mb-2 flex items-center justify-between">
-              <span>${cam.name}</span>
-              <span class="text-[10px] text-emerald-400 uppercase bg-emerald-950/60 px-1 rounded">${cam.status}</span>
-            </div>
-            <div class="space-y-1 text-neutral-300">
-              <p class="text-[11px]"><span class="text-neutral-500">Location: </span>${cam.intersection_name || "Surveillance Point"}</p>
-              <p class="text-[11px]"><span class="text-neutral-500">Coordinates: </span>${cam.latitude.toFixed(4)}, ${cam.longitude.toFixed(4)}</p>
-              <p class="text-[11px]"><span class="text-neutral-500">Heading: </span>${cam.heading_deg}°</p>
-            </div>
-          </div>
-        `;
-
-        const popup = new maplibregl.Popup({ offset: 16, className: "swiss-maplibre-popup" })
-          .setHTML(popupHtml);
-
-        const marker = new maplibregl.Marker({ element: el })
-          .setLngLat([cam.longitude, cam.latitude])
-          .setPopup(popup)
-          .addTo(map);
-
-        cameraMarkersRef.current.push(marker);
+      source.setData({
+        type: "FeatureCollection",
+        features: cameraFeatures,
       });
 
       // Fit to camera bounds if no trajectory is active yet
-      if (trajectory.points.length === 0) {
+      if (trajectory.points.length === 0 && cameras.length > 0) {
         const bounds = new maplibregl.LngLatBounds();
         cameras.forEach((c) => bounds.extend([c.longitude, c.latitude]));
         map.fitBounds(bounds, { padding: 60, maxZoom: 13, duration: 600 });
       }
     }
+
+    // Toggle camera cluster layers visibility
+    const visibility = showCameras ? "visible" : "none";
+    [
+      "camera-clusters",
+      "camera-cluster-count",
+      "camera-unclustered",
+      "camera-unclustered-inner",
+    ].forEach((layerId) => {
+      if (map.getLayer(layerId)) {
+        map.setLayoutProperty(layerId, "visibility", visibility);
+      }
+    });
   }, [cameras, showCameras, isMapReady, trajectory.points.length]);
 
-  // 4. Update Trajectory Polylines (GeoJSON line layer)
+  // 4. Update Trajectory Polylines (Road-snapped GeoJSON lines with speed colors)
   const updateTrajectoryPolylines = useCallback(() => {
     const map = mapRef.current;
     if (!map || !isMapReady) return;
 
     ensureTrajectoryLayers(map);
 
-    const features = trajectory.segments.map((seg) => ({
-      type: "Feature",
-      properties: {
-        id: seg.id,
-        speed: seg.speed,
-        color: seg.color,
-      },
-      geometry: {
-        type: "LineString",
-        coordinates: [
-          [seg.coordinates[0][1], seg.coordinates[0][0]], // [lng, lat]
-          [seg.coordinates[1][1], seg.coordinates[1][0]], // [lng, lat]
-        ],
-      },
-    }));
+    const features = trajectory.segments.map((seg) => {
+      // Use road-snapped coordinates from backend if available, fallback to straight line
+      const coords =
+        seg.geoJsonCoordinates ||
+        seg.coordinates.map((c) => [c[1], c[0]]); // GeoJSON is [lng, lat]
+
+      return {
+        type: "Feature",
+        properties: {
+          id: seg.id,
+          speed: seg.speed,
+          color: seg.color,
+        },
+        geometry: {
+          type: "LineString",
+          coordinates: coords,
+        },
+      };
+    });
 
     const source = map.getSource("trajectory-segments");
     if (source) {
@@ -257,12 +543,44 @@ export function DashboardMapPage({ initialSearchPlate = null, onPlateSelect = nu
     updateTrajectoryPolylines();
   }, [updateTrajectoryPolylines]);
 
-  // 5. Update Chronological Numbered Markers
+  // 5. High-Speed Segment Pulsing Glow Animation
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !isMapReady) return;
 
-    // Clear existing numbered markers
+    const hasHighSpeed = trajectory.segments.some((s) => s.speed !== null && s.speed >= 80);
+
+    if (hasHighSpeed) {
+      const animateGlow = () => {
+        if (!mapRef.current || !mapRef.current.getLayer("trajectory-glow")) return;
+        const now = Date.now();
+        const pulse = 0.5 + 0.5 * Math.sin(now / 300); // 0.0 -> 1.0
+        const opacity = 0.25 + 0.45 * pulse;
+        const width = 11 + 4 * pulse;
+
+        try {
+          mapRef.current.setPaintProperty("trajectory-glow", "line-opacity", opacity);
+          mapRef.current.setPaintProperty("trajectory-glow", "line-width", width);
+        } catch {}
+
+        glowAnimFrameRef.current = requestAnimationFrame(animateGlow);
+      };
+
+      glowAnimFrameRef.current = requestAnimationFrame(animateGlow);
+    }
+
+    return () => {
+      if (glowAnimFrameRef.current) {
+        cancelAnimationFrame(glowAnimFrameRef.current);
+      }
+    };
+  }, [trajectory.segments, isMapReady]);
+
+  // 6. Chronological Numbered Markers
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !isMapReady) return;
+
     trajectoryMarkersRef.current.forEach(({ marker }) => marker.remove());
     trajectoryMarkersRef.current = [];
 
@@ -334,7 +652,7 @@ export function DashboardMapPage({ initialSearchPlate = null, onPlateSelect = nu
     }
   }, [trajectory.points, isMapReady]);
 
-  // 6. Highlight active marker on slider change
+  // 7. Highlight active marker on slider change
   useEffect(() => {
     trajectoryMarkersRef.current.forEach(({ el, index }) => {
       if (index === sliderIndex) {
@@ -345,7 +663,7 @@ export function DashboardMapPage({ initialSearchPlate = null, onPlateSelect = nu
     });
   }, [sliderIndex]);
 
-  // 7. Vehicle Animated Cursor Marker
+  // 8. Vehicle Animated Cursor Marker creation and static orientation update
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !isMapReady) return;
@@ -353,15 +671,40 @@ export function DashboardMapPage({ initialSearchPlate = null, onPlateSelect = nu
     const currentPoint = trajectory.points[sliderIndex] || null;
 
     if (currentPoint) {
+      // Determine initial orientation bearing
+      let bearing = 0;
+      if (sliderIndex < trajectory.points.length - 1) {
+        const nextPoint = trajectory.points[sliderIndex + 1];
+        bearing = calculateBearing(currentPoint.lat, currentPoint.lng, nextPoint.lat, nextPoint.lng);
+      } else if (sliderIndex > 0) {
+        const prevPoint = trajectory.points[sliderIndex - 1];
+        bearing = calculateBearing(prevPoint.lat, prevPoint.lng, currentPoint.lat, currentPoint.lng);
+      }
+
       if (!vehicleCursorRef.current) {
-        const el = document.createElement("div");
-        el.className = "swiss-vehicle-cursor";
-        const marker = new maplibregl.Marker({ element: el })
+        const container = document.createElement("div");
+        container.className = "swiss-vehicle-cursor-container";
+        container.innerHTML = `
+          <div class="swiss-vehicle-pulse"></div>
+          <div class="swiss-vehicle-cursor">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z" />
+            </svg>
+          </div>
+        `;
+
+        const marker = new maplibregl.Marker({ element: container, rotationAlignment: "map" })
           .setLngLat([currentPoint.lng, currentPoint.lat])
+          .setRotation(bearing)
           .addTo(map);
+
         vehicleCursorRef.current = marker;
       } else {
-        vehicleCursorRef.current.setLngLat([currentPoint.lng, currentPoint.lat]);
+        // If not running smooth playback animation, directly update position & rotation
+        if (!isPlaying) {
+          vehicleCursorRef.current.setLngLat([currentPoint.lng, currentPoint.lat]);
+          vehicleCursorRef.current.setRotation(bearing);
+        }
       }
     } else {
       if (vehicleCursorRef.current) {
@@ -369,9 +712,9 @@ export function DashboardMapPage({ initialSearchPlate = null, onPlateSelect = nu
         vehicleCursorRef.current = null;
       }
     }
-  }, [sliderIndex, trajectory.points, isMapReady]);
+  }, [sliderIndex, trajectory.points, isMapReady, isPlaying]);
 
-  // 8. Update slider bounds when points change
+  // 9. Update slider bounds when points change
   useEffect(() => {
     if (trajectory.points.length > 0) {
       setSliderIndex(trajectory.points.length - 1);
@@ -380,26 +723,77 @@ export function DashboardMapPage({ initialSearchPlate = null, onPlateSelect = nu
     }
   }, [trajectory.points.length]);
 
-  // 9. Timeline Animation Interval
+  // 10. Smooth Playback Animation with Road Interpolation & Rotation
   useEffect(() => {
-    if (isPlaying && trajectory.points.length > 1) {
-      playIntervalRef.current = setInterval(() => {
-        setSliderIndex((prev) => {
-          if (prev >= trajectory.points.length - 1) {
-            setIsPlaying(false);
-            return prev;
-          }
-          return prev + 1;
-        });
-      }, 1200 / playbackSpeed);
-    } else {
-      if (playIntervalRef.current) clearInterval(playIntervalRef.current);
+    if (!isPlaying || trajectory.points.length < 2) {
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+      return;
     }
 
-    return () => {
-      if (playIntervalRef.current) clearInterval(playIntervalRef.current);
+    let currentSegmentIndex = sliderIndex;
+    if (currentSegmentIndex >= trajectory.points.length - 1) {
+      currentSegmentIndex = 0;
+      setSliderIndex(0);
+    }
+
+    const segmentDuration = 1400 / playbackSpeed;
+    let startTime = performance.now();
+
+    const animateVehicle = (currentTime) => {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(elapsed / segmentDuration, 1.0);
+
+      const segment = trajectory.segments[currentSegmentIndex];
+      // Segment coordinates in GeoJSON [lng, lat]
+      const coords =
+        segment?.geoJsonCoordinates ||
+        (segment?.coordinates
+          ? segment.coordinates.map((c) => [c[1], c[0]])
+          : null);
+
+      if (coords && coords.length >= 2 && vehicleCursorRef.current) {
+        // Find position along polyline
+        const totalSteps = coords.length - 1;
+        const floatIndex = progress * totalSteps;
+        const subIndex = Math.min(Math.floor(floatIndex), totalSteps - 1);
+        const subFrac = floatIndex - subIndex;
+
+        const pA = coords[subIndex];
+        const pB = coords[subIndex + 1] || coords[subIndex];
+
+        const interpLng = pA[0] + (pB[0] - pA[0]) * subFrac;
+        const interpLat = pA[1] + (pB[1] - pA[1]) * subFrac;
+
+        const bearing = calculateBearing(pA[1], pA[0], pB[1], pB[0]);
+
+        vehicleCursorRef.current.setLngLat([interpLng, interpLat]);
+        vehicleCursorRef.current.setRotation(bearing);
+      }
+
+      if (progress < 1.0) {
+        animFrameRef.current = requestAnimationFrame(animateVehicle);
+      } else {
+        // Advance to next waypoint
+        const nextIndex = currentSegmentIndex + 1;
+        setSliderIndex(nextIndex);
+
+        if (nextIndex < trajectory.points.length - 1) {
+          currentSegmentIndex = nextIndex;
+          startTime = performance.now();
+          animFrameRef.current = requestAnimationFrame(animateVehicle);
+        } else {
+          // Reached destination
+          setIsPlaying(false);
+        }
+      }
     };
-  }, [isPlaying, trajectory.points.length, playbackSpeed]);
+
+    animFrameRef.current = requestAnimationFrame(animateVehicle);
+
+    return () => {
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    };
+  }, [isPlaying, trajectory.points.length, trajectory.segments, playbackSpeed, sliderIndex]);
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
@@ -512,6 +906,7 @@ export function DashboardMapPage({ initialSearchPlate = null, onPlateSelect = nu
             </span>
           </div>
 
+          {/* Cameras Cluster Toggle */}
           <button
             onClick={() => setShowCameras((prev) => !prev)}
             className={`px-2.5 py-1 rounded text-[11px] font-mono border transition flex items-center space-x-1.5 ${
@@ -528,7 +923,7 @@ export function DashboardMapPage({ initialSearchPlate = null, onPlateSelect = nu
 
       {/* Main Map + Side Telemetry Grid */}
       <div className="flex-1 relative flex overflow-hidden">
-        {/* MapLibre GL Container with OpenFreeMap Liberty style */}
+        {/* MapLibre GL Container with Carto Dark Matter Vector Style */}
         <div className="flex-1 relative z-0">
           <div ref={mapContainerRef} className="w-full h-full relative" />
         </div>
@@ -547,6 +942,13 @@ export function DashboardMapPage({ initialSearchPlate = null, onPlateSelect = nu
                 </span>
               )}
             </div>
+
+            {trajectory.isRoadSnapped && (
+              <div className="mt-2 flex items-center space-x-1 text-[10px] font-mono text-emerald-400 bg-emerald-950/40 border border-emerald-900/60 px-2 py-1 rounded">
+                <Layers className="w-3 h-3 mr-1" />
+                <span>OSRM Road-Snapped Alignment</span>
+              </div>
+            )}
 
             {trajectoryError && (
               <div className="mt-3 p-2.5 bg-red-950/40 border border-red-800 rounded text-red-300 text-xs font-mono">

@@ -1,9 +1,11 @@
 """Vehicle trajectory and tracking endpoints."""
 
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession as SAAsyncSession
@@ -11,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession as SAAsyncSession
 from app.core.config import settings
 from app.core.deps import get_db, require_role
 from app.matching.haversine import est_speed_kmh
+from app.matching.road_distance import async_get_snapped_segment
 from app.models.camera import Camera
 from app.models.sighting import Sighting
 from app.models.user import User
@@ -148,20 +151,73 @@ async def get_trajectory(
         )
         segment_speeds.append(round(spd, 2))
 
+    # OSRM road-snapping for segments with straight-line fallback
+    segment_geometries: list[list[list[float]]] = []
+    is_road_snapped = False
+
+    if n >= 2:
+        try:
+            async with httpx.AsyncClient(timeout=settings.osrm_timeout) as client:
+                tasks = [
+                    async_get_snapped_segment(
+                        [rows[i].longitude, rows[i].latitude],
+                        [rows[i + 1].longitude, rows[i + 1].latitude],
+                        osrm_url=settings.osrm_url,
+                        timeout=settings.osrm_timeout,
+                        client=client,
+                    )
+                    for i in range(n - 1)
+                ]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for i, res in enumerate(results):
+                p1_coords = [float(rows[i].longitude), float(rows[i].latitude)]
+                p2_coords = [float(rows[i + 1].longitude), float(rows[i + 1].latitude)]
+                if isinstance(res, list) and len(res) >= 2:
+                    segment_geometries.append(res)
+                    if len(res) > 2 or res != [p1_coords, p2_coords]:
+                        is_road_snapped = True
+                else:
+                    segment_geometries.append([p1_coords, p2_coords])
+        except Exception:
+            # Fallback to straight line segments if OSRM service is unreachable
+            is_road_snapped = False
+            segment_geometries = [
+                [
+                    [float(rows[i].longitude), float(rows[i].latitude)],
+                    [float(rows[i + 1].longitude), float(rows[i + 1].latitude)],
+                ]
+                for i in range(n - 1)
+            ]
+
+    # Assemble line geometry: road-snapped if available, otherwise straight line
+    if is_road_snapped:
+        snapped_coords: list[list[float]] = []
+        for seg in segment_geometries:
+            if snapped_coords and seg:
+                snapped_coords.extend(seg[1:])
+            else:
+                snapped_coords.extend(seg)
+        final_linestring_coords = snapped_coords
+    else:
+        final_linestring_coords = linestring_coords
+
     linestring_feature: dict[str, Any] | None = None
     if n >= 1:
         linestring_feature = {
             "type": "Feature",
             "geometry": {
                 "type": "LineString",
-                "coordinates": linestring_coords,
+                "coordinates": final_linestring_coords,
             },
             "properties": {
                 "plate": plate,
                 "speeds": segment_speeds,
                 "segment_speeds": segment_speeds,
                 "speeds_kmh": segment_speeds,
-                "total_points": n,
+                "segment_geometries": segment_geometries,
+                "is_road_snapped": is_road_snapped,
+                "total_points": len(final_linestring_coords),
             },
         }
 
@@ -175,5 +231,6 @@ async def get_trajectory(
             "plate": plate,
             "total_sightings": n,
             "total_segments": len(segment_speeds),
+            "is_road_snapped": is_road_snapped,
         },
     }

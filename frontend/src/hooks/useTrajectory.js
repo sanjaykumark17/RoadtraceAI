@@ -89,20 +89,37 @@ export function parseTrajectoryData(rawGeoJson) {
     };
   });
 
+  const segmentGeometries =
+    lineFeature?.properties?.segment_geometries || [];
+  const isRoadSnapped = Boolean(
+    lineFeature?.properties?.is_road_snapped ||
+      rawGeoJson?.properties?.is_road_snapped
+  );
+
   // Build segments between consecutive points with speed colors
   const segments = [];
   for (let i = 0; i < points.length - 1; i++) {
     const p1 = points[i];
     const p2 = points[i + 1];
     const speed = rawSpeeds[i] ?? null;
+
+    const snapped = segmentGeometries[i];
+    const geoJsonCoordinates =
+      snapped && snapped.length >= 2
+        ? snapped
+        : [
+            [p1.lng, p1.lat],
+            [p2.lng, p2.lat],
+          ];
+
+    const latLngCoordinates = geoJsonCoordinates.map((c) => [c[1], c[0]]);
+
     segments.push({
       id: `seg-${i}`,
       fromIndex: i + 1,
       toIndex: i + 2,
-      coordinates: [
-        [p1.lat, p1.lng],
-        [p2.lat, p2.lng],
-      ],
+      coordinates: latLngCoordinates,
+      geoJsonCoordinates,
       speed,
       color: getSpeedColor(speed),
     });
@@ -113,6 +130,8 @@ export function parseTrajectoryData(rawGeoJson) {
     points,
     segments,
     totalSightings: points.length,
+    isRoadSnapped,
+    lineCoordinates: lineFeature?.geometry?.coordinates || [],
   };
 }
 
@@ -204,6 +223,10 @@ export function useTrajectory(initialPlate = null) {
           coordinates: [
             [lastPoint.lat, lastPoint.lng],
             [newPoint.lat, newPoint.lng],
+          ],
+          geoJsonCoordinates: [
+            [lastPoint.lng, lastPoint.lat],
+            [newPoint.lng, newPoint.lat],
           ],
           speed: calculatedSpeed,
           color: getSpeedColor(calculatedSpeed),

@@ -35,5 +35,16 @@ services:
     depends_on:
       - backend
 
+  osrm-backend:
+    image: osrm/osrm-backend:latest
+    container_name: roadtrace-osrm
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    command: osrm-routed --algorithm mld /data/southern-zone-latest.osrm
+    volumes:
+      - osrm-data:/data
+
 volumes:
   pgdata:
+  osrm-data:
