@@ -16,8 +16,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Enable pg_trgm extension for SQL fuzzy matching
+    # Enable pg_trgm and fuzzystrmatch extensions for SQL fuzzy matching
     op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm;")
+    op.execute("CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;")
 
     # Add missing foreign key indexes
     op.create_index(

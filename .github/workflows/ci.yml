@@ -67,6 +67,15 @@ jobs:
           pip install --extra-index-url https://download.pytorch.org/whl/cpu torch torchvision
           pip install -r requirements.txt
 
+      - name: Run Database Migrations
+        env:
+          RT_DATABASE_URL: postgresql+asyncpg://roadtrace:roadtrace@localhost:5432/roadtrace
+          RT_DATABASE_URL_SYNC: postgresql+psycopg2://roadtrace:roadtrace@localhost:5432/roadtrace
+          RT_SECRET_KEY: test-secret-key-32-chars-long-abcde
+          PYTHONPATH: ".:backend"
+        run: |
+          cd backend && alembic upgrade head
+
       - name: Run Pytest Test Suite
         env:
           RT_DATABASE_URL: postgresql+asyncpg://roadtrace:roadtrace@localhost:5432/roadtrace

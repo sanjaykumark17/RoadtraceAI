@@ -19,8 +19,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Ensure postgis extension exists
+    # Ensure postgis and fuzzystrmatch extensions exist
     op.execute("CREATE EXTENSION IF NOT EXISTS postgis")
+    op.execute("CREATE EXTENSION IF NOT EXISTS fuzzystrmatch")
 
     # users
     op.create_table(

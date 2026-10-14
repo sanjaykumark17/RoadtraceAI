@@ -1,5 +1,6 @@
 .env
 *.pt
+!ml/weights/plate_yolov8s.pt
 ml/data/
 *.mp4
 snapshots/
