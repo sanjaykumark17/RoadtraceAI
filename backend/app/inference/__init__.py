@@ -1,61 +1,46 @@
-from app.inference.detector import (
-    COCO_TO_VEHICLE_CLASS,
-    VEHICLE_CLASS_IDS,
-    YOLODetector,
-    get_detector,
-)
-from app.inference.ingest import FrameSource
-from app.inference.plate_ocr import (
-    DIGIT_TO_LETTER,
-    LETTER_TO_DIGIT,
-    OCR_ALLOWLIST,
-    OCRReaderSingleton,
-    PlateDetectorSingleton,
-    PlateVoter,
-    VoteResult,
-    normalize_plate,
-    process_vehicle_crop_for_plate,
-    read_plate_text,
-)
-from app.inference.preprocess import (
-    blur_score,
-    enhance_plate,
-    is_blurry,
-    letterbox,
-    unletterbox_box,
-    unletterbox_boxes,
-)
-from app.inference.tracker import (
-    TrackedVehicle,
-    VehicleTracker,
-    get_tracker,
-    reset_trackers,
-)
+"""Lazy-loading inference module to avoid importing torch/ultralytics eagerly."""
 
-__all__ = [
-    "FrameSource",
-    "letterbox",
-    "unletterbox_box",
-    "unletterbox_boxes",
-    "blur_score",
-    "is_blurry",
-    "enhance_plate",
-    "YOLODetector",
-    "get_detector",
-    "COCO_TO_VEHICLE_CLASS",
-    "VEHICLE_CLASS_IDS",
-    "TrackedVehicle",
-    "VehicleTracker",
-    "get_tracker",
-    "reset_trackers",
-    "normalize_plate",
-    "PlateVoter",
-    "VoteResult",
-    "process_vehicle_crop_for_plate",
-    "read_plate_text",
-    "PlateDetectorSingleton",
-    "OCRReaderSingleton",
-    "DIGIT_TO_LETTER",
-    "LETTER_TO_DIGIT",
-    "OCR_ALLOWLIST",
-]
+import importlib
+from typing import Any
+
+_EXPORTS = {
+    # ingest
+    "FrameSource": "app.inference.ingest",
+    # preprocess
+    "blur_score": "app.inference.preprocess",
+    "enhance_plate": "app.inference.preprocess",
+    "is_blurry": "app.inference.preprocess",
+    "letterbox": "app.inference.preprocess",
+    "unletterbox_box": "app.inference.preprocess",
+    "unletterbox_boxes": "app.inference.preprocess",
+    # detector
+    "COCO_TO_VEHICLE_CLASS": "app.inference.detector",
+    "VEHICLE_CLASS_IDS": "app.inference.detector",
+    "YOLODetector": "app.inference.detector",
+    "get_detector": "app.inference.detector",
+    # tracker
+    "TrackedVehicle": "app.inference.tracker",
+    "VehicleTracker": "app.inference.tracker",
+    "get_tracker": "app.inference.tracker",
+    "reset_trackers": "app.inference.tracker",
+    # plate_ocr
+    "DIGIT_TO_LETTER": "app.inference.plate_ocr",
+    "LETTER_TO_DIGIT": "app.inference.plate_ocr",
+    "OCR_ALLOWLIST": "app.inference.plate_ocr",
+    "OCRReaderSingleton": "app.inference.plate_ocr",
+    "PlateDetectorSingleton": "app.inference.plate_ocr",
+    "PlateVoter": "app.inference.plate_ocr",
+    "VoteResult": "app.inference.plate_ocr",
+    "normalize_plate": "app.inference.plate_ocr",
+    "process_vehicle_crop_for_plate": "app.inference.plate_ocr",
+    "read_plate_text": "app.inference.plate_ocr",
+}
+
+__all__ = list(_EXPORTS.keys())
+
+
+def __getattr__(name: str) -> Any:
+    if name in _EXPORTS:
+        mod = importlib.import_module(_EXPORTS[name])
+        return getattr(mod, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

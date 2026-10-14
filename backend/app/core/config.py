@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     vehicle_conf: float = 0.45
     nms_iou: float = 0.50
     yolo_weights: str = "yolov8m.pt"
+    plate_weights: str = "ml/weights/plate_yolov8s.pt"
+
+    # uploads & video sources
+    upload_dir: str = "uploads"
+    rtsp_allowlist: list[str] = []
 
     # image preprocessing
     blur_tau: int = 100

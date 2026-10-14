@@ -24,7 +24,6 @@ import signal
 from typing import Any, Dict, Optional, Set
 
 import cv2
-from geoalchemy2.elements import WKTElement
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession as SAAsyncSession
 
@@ -44,7 +43,6 @@ from app.models.camera import Camera
 from app.models.enums import JobStatus, VehicleClass
 from app.models.processing_job import ProcessingJob
 from app.models.sighting import Sighting
-from app.models.vehicle import Vehicle
 from app.services.matching_service import matching_service
 
 # Structured logger setup
@@ -167,38 +165,23 @@ async def emit_sighting(
         cv2.imwrite(str(full_disk_path), best_frame)
         snapshot_path = str(full_disk_path)
 
-    # Ensure Vehicle entity exists or update last_seen
-    v_stmt = select(Vehicle).where(Vehicle.plate_number == plate_number)
-    v_res = await session.execute(v_stmt)
-    vehicle = v_res.scalar_one_or_none()
-    if vehicle is not None:
-        vehicle.last_seen = best_ts
-        vehicle.sighting_count += 1
-    else:
-        vehicle = Vehicle(
-            plate_number=plate_number,
-            vehicle_class=vehicle_class,
-            first_seen=best_ts,
-            last_seen=best_ts,
-            sighting_count=1,
+    # OCR confidence: total confidence of winning string divided by number of frames that produced it
+    winning_frames = getattr(vote_result, "winning_frames", 0)
+    if not winning_frames:
+        winning_frames = (
+            int(round(vote_result.agreement_fraction * vote_result.frames_voted))
+            or vote_result.frames_voted
         )
-        session.add(vehicle)
-        await session.flush()
 
-    # Geometry point from camera latitude and longitude
-    location_elem = WKTElement(
-        f"POINT({camera.longitude} {camera.latitude})", srid=4326
-    )
-
-    # OCR confidence: average confidence of winning plate or total / voted
     winning_conf_avg = (
-        vote_result.total_confidence / vote_result.frames_voted
-        if vote_result.frames_voted > 0
+        vote_result.total_confidence / winning_frames
+        if winning_frames > 0
         else track_meta.get("best_conf", 0.0)
     )
 
+    # Sighting inserted with vehicle_id null; matching_service.match() owns vehicle creation/updates
     sighting = Sighting(
-        vehicle_id=vehicle.id,
+        vehicle_id=None,
         camera_id=job.camera_id,
         plate_number=plate_number,
         raw_plate_text=plate_number,
@@ -206,7 +189,7 @@ async def emit_sighting(
         vehicle_class=vehicle_class,
         track_id=track_id,
         timestamp=best_ts,
-        location=location_elem,
+        location=camera.location if camera is not None else None,
         frames_voted=vote_result.frames_voted,
         snapshot_path=snapshot_path,
         job_id=job.id,
@@ -215,22 +198,9 @@ async def emit_sighting(
     await session.commit()
     await session.refresh(sighting)
 
-    log_event(
-        logging.INFO,
-        "sighting_emitted",
-        sighting_id=sighting.id,
-        job_id=job.id,
-        track_id=track_id,
-        plate_number=plate_number,
-        vehicle_class=vehicle_class.value,
-        ocr_confidence=round(sighting.ocr_confidence, 4),
-        frames_voted=vote_result.frames_voted,
-        timestamp=best_ts.isoformat(),
-        snapshot_path=snapshot_path,
-    )
-
-    # Call matching service ingest stub
+    # Matching service performs 3-tier matching and sets sighting.vehicle_id
     await matching_service.ingest_sighting(sighting, db=session)
+    await session.refresh(sighting)
 
     return sighting
 
@@ -239,6 +209,7 @@ async def process_job(
     job_id: int,
     session: SAAsyncSession,
     models: Optional[Dict[str, Any]] = None,
+    stop_event: Optional[asyncio.Event] = None,
 ) -> None:
     """Execute complete video inference pipeline for a single job."""
     job = await session.get(ProcessingJob, job_id)
@@ -274,6 +245,7 @@ async def process_job(
     voters: Dict[int, PlateVoter] = {}
     emitted_tracks: Set[int] = set()
     track_meta: Dict[int, Dict[str, Any]] = {}
+    last_seen_frame: Dict[int, int] = {}
     frames_processed = 0
 
     try:
@@ -283,20 +255,32 @@ async def process_job(
             if not os.path.exists(source_uri):
                 raise FileNotFoundError(f"Video file not found: {source_uri}")
 
-        frame_source = FrameSource(source_uri, start_time=job.started_at)
+        # Use recorded_start_at as video start time if available, otherwise job.started_at
+        video_start_time = job.recorded_start_at or job.started_at
+        frame_source = FrameSource(source_uri, start_time=video_start_time)
         with frame_source:
             for frame, frame_index, utc_ts in frame_source:
+                if stop_event is not None and stop_event.is_set():
+                    log_event(logging.INFO, "job_stopped_by_event", job_id=job.id, frame_index=frame_index)
+                    break
+
                 frames_processed += 1
 
-                # 1. Vehicle detection + ByteTrack
-                tracked_vehicles = tracker.track_frame(
-                    frame=frame, frame_index=frame_index, detector=detector
+                # 1. Vehicle detection + ByteTrack run in background thread
+                tracked_vehicles = await asyncio.to_thread(
+                    tracker.track_frame,
+                    frame=frame,
+                    frame_index=frame_index,
+                    detector=detector,
                 )
 
-                # 2. Plate detection, OCR & voting per vehicle
+                active_tids = set()
                 h, w = frame.shape[:2]
                 for tv in tracked_vehicles:
                     tid = tv.track_id
+                    active_tids.add(tid)
+                    last_seen_frame[tid] = frame_index
+
                     if tid in emitted_tracks:
                         continue
 
@@ -310,7 +294,8 @@ async def process_job(
                         continue
 
                     vehicle_crop = frame[y1:y2, x1:x2]
-                    norm_plate, conf, _crop = process_vehicle_crop_for_plate(
+                    norm_plate, conf, _crop = await asyncio.to_thread(
+                        process_vehicle_crop_for_plate,
                         vehicle_crop,
                         plate_detector=plate_detector,
                         ocr_reader=ocr_reader,
@@ -345,9 +330,40 @@ async def process_job(
                                 session=session,
                                 emitted_tracks=emitted_tracks,
                             )
+                            # Free per-track memory immediately after emission
+                            voters.pop(tid, None)
+                            meta = track_meta.pop(tid, None)
+                            if meta:
+                                meta.clear()
 
-        # Video finished: finalize any tracks with at least min_frames (5)
-        for tid, voter in voters.items():
+                # Finalize and free tracks that are lost or timed out (> 30 frames unseen)
+                timed_out_tids = [
+                    tid for tid, last_f in last_seen_frame.items()
+                    if (frame_index - last_f > 30) and (tid not in active_tids)
+                ]
+                for tid in timed_out_tids:
+                    if tid in voters:
+                        voter = voters[tid]
+                        if tid not in emitted_tracks and voter.can_finalize():
+                            vote_res = voter.finalize()
+                            if vote_res is not None:
+                                await emit_sighting(
+                                    track_id=tid,
+                                    vote_result=vote_res,
+                                    track_meta=track_meta.get(tid, {}),
+                                    job=job,
+                                    camera=camera,
+                                    session=session,
+                                    emitted_tracks=emitted_tracks,
+                                )
+                        voters.pop(tid, None)
+                    meta = track_meta.pop(tid, None)
+                    if meta:
+                        meta.clear()
+                    last_seen_frame.pop(tid, None)
+
+        # Video finished: finalize any remaining tracks with at least min_frames (5)
+        for tid, voter in list(voters.items()):
             if tid not in emitted_tracks and voter.can_finalize():
                 vote_res = voter.finalize()
                 if vote_res is not None:
@@ -360,6 +376,10 @@ async def process_job(
                         session=session,
                         emitted_tracks=emitted_tracks,
                     )
+            voters.pop(tid, None)
+            meta = track_meta.pop(tid, None)
+            if meta:
+                meta.clear()
 
         # Mark job as completed
         job.status = JobStatus.done
@@ -376,17 +396,20 @@ async def process_job(
         )
 
     except Exception as exc:
-        job.status = JobStatus.failed
-        job.error = str(exc)
-        job.frames_processed = frames_processed
-        job.finished_at = datetime.now(timezone.utc)
-        await session.commit()
+        await session.rollback()
+        failed_job = await session.get(ProcessingJob, job_id)
+        if failed_job:
+            failed_job.status = JobStatus.failed
+            failed_job.error = str(exc)[:1000]
+            failed_job.frames_processed = frames_processed
+            failed_job.finished_at = datetime.now(timezone.utc)
+            await session.commit()
 
         log_event(
             logging.ERROR,
             "job_processing_failed",
-            job_id=job.id,
-            error=str(exc),
+            job_id=job.id if job else job_id,
+            error=str(exc)[:1000],
             frames_processed=frames_processed,
         )
 
@@ -428,7 +451,9 @@ class InferenceWorker:
                                 job_id=job.id,
                                 camera_id=job.camera_id,
                             )
-                            await process_job(job.id, session, models=self.models)
+                            await process_job(
+                                job.id, session, models=self.models, stop_event=stop_event
+                            )
                 except Exception as exc:
                     log_event(
                         logging.ERROR,

@@ -30,7 +30,6 @@ LETTER_TO_DIGIT: Dict[str, str] = {
     "S": "5",
     "Z": "2",
     "G": "6",
-    "D": "0",
 }
 
 OCR_ALLOWLIST = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -101,12 +100,13 @@ class PlateDetectorSingleton:
 
     def __init__(self, weights: Optional[str] = None):
         if PlateDetectorSingleton._model is None:
-            # Check custom plate weights first, then fallback to yolov8s.pt
-            target_weights = weights
-            if not target_weights:
-                cand = Path("ml/weights/plate_yolov8s.pt")
-                target_weights = str(cand) if cand.exists() else "yolov8s.pt"
-            PlateDetectorSingleton._model = YOLO(target_weights)
+            weights_path_str = weights or getattr(settings, "plate_weights", "ml/weights/plate_yolov8s.pt")
+            target_path = Path(weights_path_str).resolve()
+            if not target_path.exists():
+                raise FileNotFoundError(
+                    f"Plate weights not found at {target_path}. Never fall back to COCO weights."
+                )
+            PlateDetectorSingleton._model = YOLO(str(target_path))
         self.model = PlateDetectorSingleton._model
 
     @classmethod
@@ -217,38 +217,39 @@ def process_vehicle_crop_for_plate(
                 best_conf = score
                 plate_box = tuple(float(x) for x in b.xyxy[0])
 
-    if plate_box is not None:
-        # Crop plate with 5% padding
-        px1, py1, px2, py2 = plate_box
-        pw = px2 - px1
-        ph = py2 - py1
-        pad_x = 0.05 * pw
-        pad_y = 0.05 * ph
+    if plate_box is None:
+        return None, 0.0, None
 
-        cx1 = max(0, int(px1 - pad_x))
-        cy1 = max(0, int(py1 - pad_y))
-        cx2 = min(vw, int(px2 + pad_x))
-        cy2 = min(vh, int(py2 + pad_y))
+    # Crop plate with 5% padding
+    px1, py1, px2, py2 = plate_box
+    pw = px2 - px1
+    ph = py2 - py1
+    pad_x = 0.05 * pw
+    pad_y = 0.05 * ph
 
-        plate_crop = vehicle_crop[cy1:cy2, cx1:cx2]
-    else:
-        # Fallback: bottom 40% of vehicle crop where plates are commonly mounted
-        plate_crop = vehicle_crop[int(vh * 0.60) :, :]
+    cx1 = max(0, int(px1 - pad_x))
+    cy1 = max(0, int(py1 - pad_y))
+    cx2 = min(vw, int(px2 + pad_x))
+    cy2 = min(vh, int(py2 + pad_y))
 
+    plate_crop = vehicle_crop[cy1:cy2, cx1:cx2]
     if plate_crop is None or plate_crop.size == 0:
         return None, 0.0, None
 
     # Step 3: Enhance plate (Grayscale -> CLAHE -> Bilateral -> Otsu)
     enhanced_gray, binary = enhance_plate(plate_crop)
 
-    # Step 4: EasyOCR read text
+    # Step 4: EasyOCR read text on enhanced grayscale
     raw_text, ocr_conf = read_plate_text(enhanced_gray, reader=ocr_reader)
-    if not raw_text:
-        # Retry with binary image
-        raw_text, ocr_conf = read_plate_text(binary, reader=ocr_reader)
-
-    # Step 5: Normalize plate text with positional confusion matrix
     normalized = normalize_plate(raw_text)
+
+    # If regex validation fails or raw text is empty, retry with Otsu binary image
+    if not normalized:
+        raw_text_bin, ocr_conf_bin = read_plate_text(binary, reader=ocr_reader)
+        normalized_bin = normalize_plate(raw_text_bin)
+        if normalized_bin:
+            normalized = normalized_bin
+            ocr_conf = ocr_conf_bin
 
     return normalized, ocr_conf, plate_crop
 
@@ -261,7 +262,8 @@ class VoteResult:
     agreement_fraction: float
     total_confidence: float
     frames_voted: int
-    is_final: bool
+    winning_frames: int = 0
+    is_final: bool = True
 
 
 class PlateVoter:
@@ -328,5 +330,6 @@ class PlateVoter:
             agreement_fraction=float(agreement_fraction),
             total_confidence=float(best_conf),
             frames_voted=len(self.reads),
+            winning_frames=agreement_count,
             is_final=True,
         )

@@ -61,18 +61,38 @@ class YOLODetector:
 
         Uses conf=0.1 by default so low-confidence detections are available
         for ByteTrack's second association pass.
+        Letterboxes explicitly to 640x640 and calls model with imgsz=640.
         """
+        from app.inference.preprocess import letterbox, unletterbox_box
+
         if iou is None:
             iou = settings.nms_iou
 
+        h, w = frame.shape[:2]
+        if (h, w) != (640, 640):
+            lb_frame, scale, pad_offsets = letterbox(frame, target_size=640)
+        else:
+            lb_frame = frame
+            scale = 1.0
+            pad_offsets = (0, 0)
+
         results = self.model(
-            frame,
+            lb_frame,
             classes=VEHICLE_CLASS_IDS,
             conf=conf,
             iou=iou,
+            imgsz=640,
             verbose=False,
         )
-        return results[0]
+        res = results[0]
+        if (scale != 1.0 or pad_offsets != (0, 0)) and hasattr(res, "boxes") and res.boxes is not None:
+            boxes_obj = res.boxes
+            if hasattr(boxes_obj, "xyxy") and len(boxes_obj.xyxy) > 0:
+                import torch
+                raw_boxes = boxes_obj.xyxy.cpu().numpy()
+                mapped = [unletterbox_box(b, scale, pad_offsets) for b in raw_boxes]
+                boxes_obj.xyxy = torch.as_tensor(mapped, dtype=boxes_obj.xyxy.dtype, device=boxes_obj.xyxy.device)
+        return res
 
     def detect_vehicles(
         self,

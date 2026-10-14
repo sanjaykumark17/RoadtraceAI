@@ -27,7 +27,7 @@ class Sighting(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    vehicle_id: Mapped[int] = mapped_column(ForeignKey("vehicles.id"))
+    vehicle_id: Mapped[Optional[int]] = mapped_column(ForeignKey("vehicles.id"), nullable=True)
     camera_id: Mapped[int] = mapped_column(ForeignKey("cameras.id"))
     plate_number: Mapped[str] = mapped_column(String(20))
     raw_plate_text: Mapped[str] = mapped_column(String(50))

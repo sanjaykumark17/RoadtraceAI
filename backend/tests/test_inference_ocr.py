@@ -32,13 +32,13 @@ def test_normalize_plate_positional_confusion_mapping():
     assert normalize_plate("MH016B1234") == "MH01GB1234"  # 6 -> G
     assert normalize_plate("1H01AB1234") == "IH01AB1234"  # 1 -> I
 
-    # Letters in digit positions: O->0, I->1, B->8, S->5, Z->2, G->6, D->0
+    # Letters in digit positions: O->0, I->1, B->8, S->5, Z->2, G->6
     assert normalize_plate("MH01AB123I") == "MH01AB1231"  # I -> 1
     assert normalize_plate("MH01AB123B") == "MH01AB1238"  # B -> 8
     assert normalize_plate("MH01AB123S") == "MH01AB1235"  # S -> 5
     assert normalize_plate("MH01AB123Z") == "MH01AB1232"  # Z -> 2
     assert normalize_plate("MH01AB123G") == "MH01AB1236"  # G -> 6
-    assert normalize_plate("MH01AB123D") == "MH01AB1230"  # D -> 0
+    assert normalize_plate("MH01AB123D") is None  # D is not in paper confusion matrix
     assert normalize_plate("MHOIAB1234") == "MH01AB1234"  # O->0, I->1
 
 

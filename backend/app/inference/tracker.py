@@ -46,9 +46,9 @@ class VehicleTracker:
         # for second-stage association pass (helping recover tracks during occlusions)
         self.tracker_args = tracker_args or SimpleNamespace(
             tracker_type="bytetrack",
-            track_high_thresh=0.25,
+            track_high_thresh=0.45,
             track_low_thresh=0.1,
-            new_track_thresh=0.25,
+            new_track_thresh=0.45,
             track_buffer=30,
             match_thresh=0.8,
             fuse_score=True,

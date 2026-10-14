@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import os
 from pathlib import Path
 import sys
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -21,7 +21,6 @@ from app.models.enums import JobStatus, VehicleClass
 from app.models.processing_job import ProcessingJob
 from app.models.sighting import Sighting
 from app.models.vehicle import Vehicle
-from app.services.matching_service import matching_service
 from app.workers.inference_worker import (
     InferenceWorker,
     claim_next_job,
@@ -133,6 +132,7 @@ async def test_emit_sighting_exact_one_and_no_duplicates(tmp_path, test_camera_i
                 agreement_fraction=0.9,
                 total_confidence=8.5,
                 frames_voted=10,
+                winning_frames=9,
                 is_final=True,
             )
 
@@ -147,62 +147,56 @@ async def test_emit_sighting_exact_one_and_no_duplicates(tmp_path, test_camera_i
 
             emitted_tracks = set()
 
-            # Mock matching_service.ingest_sighting to verify it is called
-            with patch.object(
-                matching_service, "ingest_sighting", new_callable=AsyncMock
-            ) as mock_ingest:
-                sighting = await emit_sighting(
-                    track_id=42,
-                    vote_result=vote_result,
-                    track_meta=track_meta,
-                    job=job,
-                    camera=camera,
-                    session=session,
-                    emitted_tracks=emitted_tracks,
+            sighting = await emit_sighting(
+                track_id=42,
+                vote_result=vote_result,
+                track_meta=track_meta,
+                job=job,
+                camera=camera,
+                session=session,
+                emitted_tracks=emitted_tracks,
+            )
+
+            assert sighting is not None
+            assert sighting.plate_number == "MH12DE1433"
+            assert sighting.camera_id == camera.id
+            assert sighting.track_id == 42
+            assert sighting.vehicle_class == VehicleClass.passenger_car
+            assert sighting.frames_voted == 10
+            assert sighting.timestamp.tzinfo is not None
+            assert sighting.snapshot_path is not None
+            assert os.path.exists(sighting.snapshot_path)
+            assert sighting.location is not None
+            assert sighting.vehicle_id is not None
+
+            # Verify Vehicle record was created/updated by matching service
+            v_res = await session.execute(
+                select(Vehicle).where(Vehicle.plate_number == "MH12DE1433")
+            )
+            veh = v_res.scalar_one_or_none()
+            assert veh is not None
+            assert veh.sighting_count >= 1
+
+            # Attempt second emission for the same track_id -> MUST return None (no duplicate)
+            dup_sighting = await emit_sighting(
+                track_id=42,
+                vote_result=vote_result,
+                track_meta=track_meta,
+                job=job,
+                camera=camera,
+                session=session,
+                emitted_tracks=emitted_tracks,
+            )
+            assert dup_sighting is None
+
+            # Verify only 1 sighting exists in DB for this track
+            s_res = await session.execute(
+                select(Sighting).where(
+                    Sighting.job_id == job.id, Sighting.track_id == 42
                 )
-
-                assert sighting is not None
-                assert sighting.plate_number == "MH12DE1433"
-                assert sighting.camera_id == camera.id
-                assert sighting.track_id == 42
-                assert sighting.vehicle_class == VehicleClass.passenger_car
-                assert sighting.frames_voted == 10
-                assert sighting.timestamp.tzinfo is not None
-                assert sighting.snapshot_path is not None
-                assert os.path.exists(sighting.snapshot_path)
-                assert sighting.location is not None
-
-                # Verify Vehicle record was created/updated
-                v_res = await session.execute(
-                    select(Vehicle).where(Vehicle.plate_number == "MH12DE1433")
-                )
-                veh = v_res.scalar_one_or_none()
-                assert veh is not None
-                assert veh.sighting_count >= 1
-
-                # Verify matching_service.ingest_sighting was called
-                mock_ingest.assert_awaited_once_with(sighting, db=session)
-
-                # Attempt second emission for the same track_id -> MUST return None (no duplicate)
-                dup_sighting = await emit_sighting(
-                    track_id=42,
-                    vote_result=vote_result,
-                    track_meta=track_meta,
-                    job=job,
-                    camera=camera,
-                    session=session,
-                    emitted_tracks=emitted_tracks,
-                )
-                assert dup_sighting is None
-
-                # Verify only 1 sighting exists in DB for this track
-                s_res = await session.execute(
-                    select(Sighting).where(
-                        Sighting.job_id == job.id, Sighting.track_id == 42
-                    )
-                )
-                sightings_list = s_res.scalars().all()
-                assert len(sightings_list) == 1
+            )
+            sightings_list = s_res.scalars().all()
+            assert len(sightings_list) == 1
 
 
 @pytest.mark.asyncio
