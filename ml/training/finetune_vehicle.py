@@ -47,15 +47,13 @@ def finetune_vehicle_detector(
     name: str = "vehicle_yolov8m",
     device: Optional[str] = None,
 ) -> Dict[str, float]:
-    """Fine-tune YOLOv8m on 4 vehicle classes with class weighting for imbalance."""
+    """Fine-tune YOLOv8m on 4 vehicle classes using standard Ultralytics multi-class loss."""
     data_path = Path(data_yaml)
     if not data_path.exists():
         raise FileNotFoundError(f"data.yaml not found at {data_path}")
 
     out_weights_path = Path(output_weights)
     out_weights_path.parent.mkdir(parents=True, exist_ok=True)
-
-    class_weights = compute_class_weights()
 
     print("=" * 60)
     print(" ROADTRACE AI - VEHICLE DETECTOR FINE-TUNING (YOLOv8m)")
@@ -64,7 +62,7 @@ def finetune_vehicle_detector(
     print("Class distribution :")
     for cls_name, count in CLASS_COUNTS.items():
         pct = (count / TOTAL_INSTANCES) * 100
-        print(f"  - {cls_name:<16}: {count:>5} instances ({pct:5.1f}%) | Weight: {class_weights[cls_name]:.4f}")
+        print(f"  - {cls_name:<16}: {count:>5} instances ({pct:5.1f}%)")
     print("=" * 60)
 
     model = YOLO(pretrained_weights)

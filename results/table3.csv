@@ -1,31 +1,28 @@
-category,component,metric,paper_target,run_1,run_2,run_3,measured_mean,diff_points,unit,status,explanation
-Vehicle Detector,YOLOv8m,Precision,92.5,92.5,92.6,92.7,92.6,0.1,%,PASS,Balanced 4-class evaluation with class weighting
-Vehicle Detector,YOLOv8m,Recall,92.5,92.3,92.4,92.5,92.4,-0.1,%,PASS,Multi-class recall counters rare-class dropouts
-Vehicle Detector,YOLOv8m,F1-Score,92.5,92.4,92.5,92.6,92.5,0.0,%,PASS,Harmonic mean of precision and recall
-Vehicle Detector,YOLOv8m,mAP@0.5,93.0,93.0,93.1,93.2,93.1,0.1,%,PASS,Standard COCO vehicle categories metric
-Plate Detector,YOLOv8s,Precision,90.5,0.0,0.0,0.0,0.0,-90.5,%,EXPLAIN,plate_yolov8s.pt has COCO initial weights prior to full 100-epoch synthetic fine-tuning
-Plate Detector,YOLOv8s,Recall,90.5,0.0,0.0,0.0,0.0,-90.5,%,EXPLAIN,plate_yolov8s.pt has COCO initial weights prior to full 100-epoch synthetic fine-tuning
-Plate Detector,YOLOv8s,F1-Score,90.5,0.0,0.0,0.0,0.0,-90.5,%,EXPLAIN,plate_yolov8s.pt has COCO initial weights prior to full 100-epoch synthetic fine-tuning
-Plate Detector,YOLOv8s,mAP@0.5,91.0,0.0,0.0,0.0,0.0,-91.0,%,EXPLAIN,plate_yolov8s.pt has COCO initial weights prior to full 100-epoch synthetic fine-tuning
-Multi-Object Tracking,ByteTrack,MOTA,78.2,84.17,86.18,85.56,85.3,7.1,%,EXPLAIN,Measured 85.3 vs paper 78.2: variation due to stochastic sampling or dataset size
-Plate OCR Recognition,EasyOCR Single-Frame,Plate Accuracy,88.6,88.0,89.0,89.4,88.8,0.2,%,PASS,Raw single-frame text accuracy without voting
-Plate OCR Recognition,PlateVoter (Multi-Frame),Plate Accuracy,94.2,100.0,100.0,100.0,100.0,5.8,%,EXPLAIN,Synthetic test track conditions yielded perfect recovery (100% vs 94.2% paper baseline)
-Plate OCR Recognition,Multi-Frame Voting,Accuracy Gain,5.6,12.0,11.0,10.6,11.2,5.6,pts,EXPLAIN,Measured 11.2 vs paper 5.6: variation due to stochastic sampling or dataset size
-Three-Tier Matching,Tier 1 (Exact Only),Precision,100.0,100.0,100.0,100.0,100.0,0.0,%,PASS,Exact license plate match without fuzzy expansion
-Three-Tier Matching,Tier 1 (Exact Only),Recall,78.6,78.95,78.95,78.95,78.95,0.35,%,PASS,Exact matches cover 418 of 532 ground-truth passes
-Three-Tier Matching,Tier 1+2 (+Fuzzy),Precision,90.4,90.43,90.43,90.43,90.43,0.03,%,PASS,Fuzzy expansion introduces 51 false links from similar plates
-Three-Tier Matching,Tier 1+2 (+Fuzzy),False Links,51.0,51.0,51.0,51.0,51.0,0.0,count,PASS,Unfiltered coincidental false matches across distance <= 2
-Three-Tier Matching,Tier 1+2+3 (Final),Precision,96.2,96.21,96.21,96.21,96.21,0.01,%,PASS,Speed filter rejects kinematic violations (v > 150 km/h)
-Three-Tier Matching,Tier 1+2+3 (Final),Recall,94.0,90.6,90.6,90.6,90.6,-3.4,%,EXPLAIN,Evaluated on all 532 raw passes (482/532 = 90.6%) vs 513 valid transit pairs (482/513 = 94.0%)
-Three-Tier Matching,Tier 1+2+3 (Final),F1-Score,95.1,93.32,93.32,93.32,93.32,-1.78,%,PASS,Optimal harmonic balance between precision and recall
-Three-Tier Matching,Kinematic Speed Filter,False Link Reduction,62.7,62.75,62.75,62.75,62.75,0.05,%,PASS,False links drop from 51 to 19 (-62.7% reduction)
-Ablation: Preprocessing,"Raw OCR (w/o CLAHE, w/o Matrix)",Char Errors,340.0,335.0,340.0,345.0,340.0,0.0,count,PASS,Raw OCR character errors on test plates
-Ablation: Preprocessing,Enhanced (w/ CLAHE + Matrix),Char Errors,200.0,197.0,200.0,203.0,200.0,0.0,count,PASS,Contrast enhancement + positional confusion correction
-Ablation: Preprocessing,CLAHE + Confusion Matrix,Error Reduction,41.2,41.19,41.18,41.16,41.18,-0.02,%,PASS,Fixes 41.2% of character-level errors
-Ablation: Detector,YOLOv8m,Throughput,38.5,38.2,38.5,38.8,38.5,0.0,FPS,PASS,Single-stage anchor-free real-time detection
-Ablation: Detector,YOLOv8m,mAP@0.5,93.0,92.9,93.0,93.1,93.0,0.0,%,PASS,High detection accuracy across all vehicle categories
-Ablation: Detector,Faster R-CNN (ResNet-50),Throughput,11.2,11.0,11.2,11.4,11.2,0.0,FPS,PASS,Two-stage proposal network exhibits 3.4x lower throughput
-Ablation: Detector,Faster R-CNN (ResNet-50),mAP@0.5,88.5,88.3,88.5,88.7,88.5,0.0,%,PASS,Lower mAP on small/fast two-wheelers and crowded traffic
-Ablation: Tracker,ByteTrack,MOTA,78.2,84.17,86.18,85.56,85.3,7.1,%,EXPLAIN,Measured 85.3 vs paper 78.2: variation due to stochastic sampling or dataset size
-Ablation: Tracker,DeepSORT,MOTA,72.1,75.56,76.74,76.74,76.35,4.25,%,EXPLAIN,Measured 76.35 vs paper 72.1: variation due to stochastic sampling or dataset size
-Ablation: Tracker,SORT,MOTA,64.5,63.96,64.79,65.49,64.75,0.25,%,PASS,Single-threshold IoU drops occluded tracks causing fragmentation
+category,component,metric,paper_target,measured_mean,run_1,run_2,run_3,diff_points,unit,status,explanation
+Vehicle Detector,YOLOv8m,Precision,94.0,not measured,not measured,not measured,not measured,,%,not measured,Not measured; requires labeled UA-DETRAC/BDD100K held-out vehicle test split and GPU.
+Vehicle Detector,YOLOv8m,Recall,91.1,not measured,not measured,not measured,not measured,,%,not measured,Not measured; requires labeled UA-DETRAC/BDD100K held-out vehicle test split and GPU.
+Vehicle Detector,YOLOv8m,F1-Score,92.5,not measured,not measured,not measured,not measured,,%,not measured,Not measured; requires labeled UA-DETRAC/BDD100K held-out vehicle test split and GPU.
+Vehicle Detector,YOLOv8m,mAP@0.5,93.0,not measured,not measured,not measured,not measured,,%,not measured,Not measured; requires labeled UA-DETRAC/BDD100K held-out vehicle test split and GPU.
+Plate Detector,YOLOv8s,Precision,92.0,not measured,not measured,not measured,not measured,,%,not measured,Not measured; plate_yolov8s.pt has COCO initial weights prior to license-plate fine-tuning.
+Plate Detector,YOLOv8s,Recall,89.0,not measured,not measured,not measured,not measured,,%,not measured,Not measured; plate_yolov8s.pt has COCO initial weights prior to license-plate fine-tuning.
+Plate Detector,YOLOv8s,F1-Score,90.5,not measured,not measured,not measured,not measured,,%,not measured,Not measured; plate_yolov8s.pt has COCO initial weights prior to license-plate fine-tuning.
+Plate Detector,YOLOv8s,mAP@0.5,91.0,not measured,not measured,not measured,not measured,,%,not measured,Not measured; plate_yolov8s.pt has COCO initial weights prior to license-plate fine-tuning.
+Multi-Object Tracking,ByteTrack,MOTA,78.5,75.45,76.67,77.0,72.67,-3.05,%,measured,Measured using real ByteTrack tracker against synthetic ground-truth tracks via py-motmetrics
+Plate OCR Recognition,EasyOCR Single-Frame,Plate Accuracy,88.6,not measured,not measured,not measured,not measured,,%,not measured,Not measured; requires directory of labeled plate crops and EasyOCR.
+Plate OCR Recognition,PlateVoter (Multi-Frame),Plate Accuracy,94.2,not measured,not measured,not measured,not measured,,%,not measured,Not measured; requires directory of labeled plate crops and EasyOCR.
+Plate OCR Recognition,Multi-Frame Voting,Accuracy Gain,5.6,not measured,not measured,not measured,not measured,,pts,not measured,Not measured; requires directory of labeled plate crops and EasyOCR.
+Three-Tier Matching,Tier 1 (Exact Only),Precision,100.0,100.0,100.0,100.0,100.0,0.0,%,measured,Replayed through backend/app/matching/matcher.py on synthetic sample dataset
+Three-Tier Matching,Tier 1 (Exact Only),Recall,78.6,78.57,78.57,78.57,78.57,-0.03,%,measured,Replayed through backend/app/matching/matcher.py on synthetic sample dataset
+Three-Tier Matching,Tier 1+2 (+Fuzzy),Precision,90.4,90.43,90.43,90.43,90.43,0.03,%,measured,Replayed through backend/app/matching/matcher.py on synthetic sample dataset
+Three-Tier Matching,Tier 1+2 (+Fuzzy),False Links,51.0,51.0,51.0,51.0,51.0,0.0,count,measured,Replayed through backend/app/matching/matcher.py on synthetic sample dataset
+Three-Tier Matching,Tier 1+2+3 (Final),Precision,96.2,96.21,96.21,96.21,96.21,0.01,%,measured,Replayed through backend/app/matching/matcher.py on synthetic sample dataset
+Three-Tier Matching,Tier 1+2+3 (Final),Recall,94.0,90.6,90.6,90.6,90.6,-3.4,%,measured,Replayed through backend/app/matching/matcher.py on synthetic sample dataset
+Three-Tier Matching,Tier 1+2+3 (Final),F1-Score,95.1,93.32,93.32,93.32,93.32,-1.78,%,measured,Replayed through backend/app/matching/matcher.py on synthetic sample dataset
+Three-Tier Matching,Kinematic Speed Filter,False Link Reduction,62.7,62.75,62.75,62.75,62.75,0.05,%,measured,Replayed through backend/app/matching/matcher.py on synthetic sample dataset
+Ablation: Preprocessing,CLAHE + Confusion Matrix,Error Reduction,41.2,not measured,not measured,not measured,not measured,,%,not measured,Not measured; requires paired raw vs enhanced OCR evaluation on labeled plate dataset
+Ablation: Detector,YOLOv8m,Throughput,62.0,3.1,3.1,3.1,3.1,-58.9,FPS,measured,Measured CPU throughput on current host (3.1 FPS vs paper 62 FPS on NVIDIA GPU)
+Ablation: Detector,Faster R-CNN (ResNet-50),Throughput,8.0,not measured,not measured,not measured,not measured,,FPS,not measured,Not measured; Faster R-CNN weights and benchmark not included in repository
+Ablation: Detector,Faster R-CNN (ResNet-50),mAP@0.5,95.0,not measured,not measured,not measured,not measured,,%,not measured,Not measured; Faster R-CNN weights and evaluation split not included in repository
+Ablation: Tracker,ByteTrack,MOTA,78.5,75.45,76.67,77.0,72.67,-3.05,%,measured,Measured using real ByteTrack tracker against synthetic ground-truth tracks via py-motmetrics
+Ablation: Tracker,DeepSORT,MOTA,74.9,not measured,not measured,not measured,not measured,,%,not measured,Not measured; DeepSORT tracker baseline not implemented in repository
+Ablation: Tracker,SORT,MOTA,68.2,not measured,not measured,not measured,not measured,,%,not measured,Not measured; SORT tracker baseline not implemented in repository

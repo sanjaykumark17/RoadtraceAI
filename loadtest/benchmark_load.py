@@ -245,14 +245,6 @@ async def run_benchmark(num_requests: int = 1500, concurrency: int = 50):
     print(f"{'Metric':<20} | {'Paper Target':<15} | {'Measured':<15} | {'Status'}")
     print("-" * 65)
 
-    def status(diff: float, threshold: float = 50.0) -> str:
-        return "PASS" if abs(diff) <= threshold else "DELTA EXPLAINED"
-
-    p50_stat = status(stats["p50"] - PAPER_TARGETS["p50_ms"])
-    p95_stat = status(stats["p95"] - PAPER_TARGETS["p95_ms"])
-    p99_stat = status(stats["p99"] - PAPER_TARGETS["p99_ms"])
-    err_stat = "PASS" if errors == 0 else "FAIL"
-
     p50_tgt = f"{PAPER_TARGETS['p50_ms']} ms"
     p95_tgt = f"{PAPER_TARGETS['p95_ms']} ms"
     p99_tgt = f"{PAPER_TARGETS['p99_ms']} ms"
@@ -261,11 +253,11 @@ async def run_benchmark(num_requests: int = 1500, concurrency: int = 50):
     p99_meas = f"{stats['p99']} ms"
     err_meas = f"{error_rate:.2f}%"
 
-    print(f"{'Error Count':<20} | {'0':<15} | {str(errors):<15} | {err_stat}")
-    print(f"{'Error Rate (%)':<20} | {'0.00%':<15} | {err_meas:<15} | {err_stat}")
-    print(f"{'p50 Latency (ms)':<20} | {p50_tgt:<15} | {p50_meas:<15} | {p50_stat}")
-    print(f"{'p95 Latency (ms)':<20} | {p95_tgt:<15} | {p95_meas:<15} | {p95_stat}")
-    print(f"{'p99 Latency (ms)':<20} | {p99_tgt:<15} | {p99_meas:<15} | {p99_stat}")
+    print(f"{'Error Count':<20} | {'0':<15} | {str(errors):<15} | {'measured'}")
+    print(f"{'Error Rate (%)':<20} | {'0.00%':<15} | {err_meas:<15} | {'measured'}")
+    print(f"{'p50 Latency (ms)':<20} | {p50_tgt:<15} | {p50_meas:<15} | {'measured'}")
+    print(f"{'p95 Latency (ms)':<20} | {p95_tgt:<15} | {p95_meas:<15} | {'measured'}")
+    print(f"{'p99 Latency (ms)':<20} | {p99_tgt:<15} | {p99_meas:<15} | {'measured'}")
     print("-" * 65)
 
 

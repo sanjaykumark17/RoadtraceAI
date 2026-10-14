@@ -420,48 +420,60 @@ def test_websocket_trajectory_live_feed():
                     pass
             assert exc_info.value.code == 1008
 
-        # 2. Connection with plate="*" fails with 1008
-        with pytest.raises(WebSocketDisconnect) as exc_info:
-            with test_c.websocket_connect(f"/ws/trajectory/*?token={op_token}"):
-                pass
-        assert exc_info.value.code == 1008
+            # 2. Connection with plate="*" fails with 1008
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                with test_c.websocket_connect(f"/ws/trajectory/*?token={op_token}"):
+                    pass
+            assert exc_info.value.code == 1008
 
-        # 3. Connection with viewer role fails with 1008
-        with pytest.raises(WebSocketDisconnect) as exc_info:
-            with test_c.websocket_connect(f"/ws/trajectory/{ws_plate}?token={viewer_token}"):
-                pass
-        assert exc_info.value.code == 1008
+            # 3. Connection with viewer role fails with 1008
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                with test_c.websocket_connect(f"/ws/trajectory/{ws_plate}?token={viewer_token}"):
+                    pass
+            assert exc_info.value.code == 1008
 
-        # 4. Valid operator connection receives sighting
-        def insert_sighting_delayed():
-            time.sleep(0.5)
-            with SyncSession() as s:
-                s.execute(text(f"""
-                    INSERT INTO sightings (
-                        vehicle_id, camera_id, plate_number, raw_plate_text,
-                        ocr_confidence, vehicle_class, track_id, timestamp,
-                        frames_voted, job_id
-                    ) VALUES (
-                        1, 1, '{ws_plate}', '{ws_plate}',
-                        0.99, 'passenger_car', 888, NOW(),
-                        10, 1
-                    );
-                """))
-                s.commit()
+            # 4. Valid operator connection receives sighting
+            def insert_sighting_delayed():
+                time.sleep(0.5)
+                with SyncSession() as s:
+                    veh = s.query(Vehicle).first()
+                    if not veh:
+                        veh = Vehicle(
+                            plate_number=ws_plate,
+                            vehicle_class=VehicleClass.passenger_car,
+                            first_seen=datetime.now(UTC),
+                            last_seen=datetime.now(UTC),
+                            sighting_count=1,
+                        )
+                        s.add(veh)
+                        s.commit()
+                    veh_id = veh.id
+                    s.execute(text(f"""
+                        INSERT INTO sightings (
+                            vehicle_id, camera_id, plate_number, raw_plate_text,
+                            ocr_confidence, vehicle_class, track_id, timestamp,
+                            frames_voted, job_id
+                        ) VALUES (
+                            {veh_id}, 1, '{ws_plate}', '{ws_plate}',
+                            0.99, 'passenger_car', 888, NOW(),
+                            10, 1
+                        );
+                    """))
+                    s.commit()
 
-        thread = threading.Thread(target=insert_sighting_delayed)
-        thread.start()
+            thread = threading.Thread(target=insert_sighting_delayed)
+            thread.start()
 
-        with test_c.websocket_connect(f"/ws/trajectory/{ws_plate}?token={op_token}") as ws:
-            msg = ws.receive_json()
-            assert msg["plate_number"] == ws_plate
-            assert msg["type"] == "Feature"
-            assert msg["geometry"]["type"] == "Point"
-            assert msg["properties"]["plate_number"] == ws_plate
-            assert msg["properties"]["camera_name"] == "CAM-GST-01"
-            assert msg["properties"]["ocr_confidence"] == pytest.approx(0.99, 0.01)
+            with test_c.websocket_connect(f"/ws/trajectory/{ws_plate}?token={op_token}") as ws:
+                msg = ws.receive_json()
+                assert msg["plate_number"] == ws_plate
+                assert msg["type"] == "Feature"
+                assert msg["geometry"]["type"] == "Point"
+                assert msg["properties"]["plate_number"] == ws_plate
+                assert msg["properties"]["camera_name"] == "CAM-GST-01"
+                assert msg["properties"]["ocr_confidence"] == pytest.approx(0.99, 0.01)
 
-        thread.join()
+            thread.join()
     finally:
         asyncio.run(async_engine.dispose())
         with SyncSession() as s:

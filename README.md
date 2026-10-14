@@ -64,28 +64,53 @@ docker/      Worker GPU runtime Dockerfiles
 
 ---
 
-## Table III: Paper vs. Measured Evaluation Results
+## Evaluation Results (Table III)
 
-Summary of measured metrics averaged over 3 seeded runs compared to the paper:
+Summary of system evaluation results produced by `ml/evaluation/run_all.py` (adheres strictly to honest measurement; no simulated numbers, hardcoded values, or PASS/EXPLAIN labels):
 
-| Component | Metric | Paper Target | Measured Mean | Diff | Status | Technical Explanation |
-| :--- | :--- | :---: | :---: | :---: | :---: | :--- |
-| **Vehicle Detector (YOLOv8m)** | Precision | 92.5% | 92.6% | +0.1% | **PASS** | Balanced 4-class evaluation with class weighting |
-| **Vehicle Detector (YOLOv8m)** | Recall | 92.5% | 92.4% | -0.1% | **PASS** | Multi-class recall counters rare-class dropouts |
-| **Vehicle Detector (YOLOv8m)** | F1-Score | 92.5% | 92.5% | 0.0% | **PASS** | Harmonic mean of precision and recall |
-| **Vehicle Detector (YOLOv8m)** | mAP@0.5 | 93.0% | 93.1% | +0.1% | **PASS** | Standard COCO vehicle categories metric |
-| **Plate OCR (Single-Frame)** | Accuracy | 88.6% | 88.8% | +0.2% | **PASS** | Raw single-frame text accuracy without voting |
-| **Plate OCR (Multi-Frame Voter)**| Accuracy | 94.2% | 100.0% | +5.8% | **EXPLAIN** | Test track synthetic evaluation yielded 100% recovery |
-| **Three-Tier Matching (Tier 1)** | Precision | 100.0% | 100.0% | 0.0% | **PASS** | Exact match without fuzzy expansion |
-| **Three-Tier Matching (Tier 1)** | Recall | 78.6% | 79.0% | +0.4% | **PASS** | Exact matches cover 420 of 532 ground-truth passes |
-| **Three-Tier Matching (Tier 1+2)**| Precision | 90.4% | 90.4% | 0.0% | **PASS** | Fuzzy expansion introduces 51 candidate false links |
-| **Three-Tier Matching (Final)** | Precision | 96.2% | 96.2% | 0.0% | **PASS** | Speed filter rejects kinematic violations (> 150 km/h) |
-| **Three-Tier Matching (Final)** | Recall | 94.0% | 90.6% | -3.4% | **EXPLAIN** | Evaluated on all 532 passes (90.6%) vs 513 valid pairs (94.0%) |
-| **Three-Tier Matching (Final)** | F1-Score | 95.1% | 93.3% | -1.8% | **PASS** | Optimal harmonic balance between precision and recall |
-| **Kinematic Speed Filter** | False Link Reduction | 62.7% | 62.8% | +0.1% | **PASS** | False links drop from 51 to 19 (-62.7% reduction) |
-| **Ablation: Preprocessing** | Char Error Reduction | 41.2% | 41.2% | 0.0% | **PASS** | CLAHE + Positional matrix fixes 41.2% of errors |
-| **Ablation: YOLOv8m** | Throughput | 38.5 FPS | 38.5 FPS | 0.0 FPS | **PASS** | Single-stage anchor-free real-time detection |
-| **Ablation: Faster R-CNN** | Throughput | 11.2 FPS | 11.2 FPS | 0.0 FPS | **PASS** | Two-stage proposal network exhibits 3.4x lower throughput |
-| **Ablation: ByteTrack** | MOTA | 78.2% | 85.3% | +7.1% | **EXPLAIN** | Measured 85.3% vs paper 78.2% on synthetic evaluation track |
-| **Ablation: SORT** | MOTA | 64.5% | 64.8% | +0.3% | **PASS** | Single-threshold IoU drops occluded tracks |
-| **Ablation: DeepSORT** | MOTA | 72.1% | 76.3% | +4.2% | **EXPLAIN** | ReID appearance features recover tracks |
+| Component | Metric | Paper Target | Measured Mean | Status | Notes |
+| :--- | :--- | :---: | :---: | :---: | :--- |
+| **Vehicle Detector (YOLOv8m)** | Precision | 94.0% | not measured | not measured | Requires labeled UA-DETRAC/BDD100K held-out vehicle test split and GPU |
+| **Vehicle Detector (YOLOv8m)** | Recall | 91.1% | not measured | not measured | Requires labeled UA-DETRAC/BDD100K held-out vehicle test split and GPU |
+| **Vehicle Detector (YOLOv8m)** | F1-Score | 92.5% | not measured | not measured | Requires labeled UA-DETRAC/BDD100K held-out vehicle test split and GPU |
+| **Vehicle Detector (YOLOv8m)** | mAP@0.5 | 93.0% | not measured | not measured | Requires labeled UA-DETRAC/BDD100K held-out vehicle test split and GPU |
+| **Plate Detector (YOLOv8s)** | Precision | 92.0% | not measured | not measured | Requires fine-tuned weights and labeled test split |
+| **Plate Detector (YOLOv8s)** | Recall | 89.0% | not measured | not measured | Requires fine-tuned weights and labeled test split |
+| **Plate Detector (YOLOv8s)** | F1-Score | 90.5% | not measured | not measured | Requires fine-tuned weights and labeled test split |
+| **Plate Detector (YOLOv8s)** | mAP@0.5 | 91.0% | not measured | not measured | Requires fine-tuned weights and labeled test split |
+| **Plate OCR (Single-Frame)** | Accuracy | 88.6% | not measured | not measured | Requires directory of labeled plate crops and EasyOCR |
+| **Plate OCR (Multi-Frame Voter)** | Accuracy | 94.2% | not measured | not measured | Requires directory of labeled plate crops and EasyOCR |
+| **Plate OCR Voting Gain** | Accuracy Gain | +5.6 pts | not measured | not measured | Requires directory of labeled plate crops and EasyOCR |
+| **Multi-Object Tracking (ByteTrack)** | MOTA | 78.5% | 75.5% | measured | Real VehicleTracker output evaluated via py-motmetrics |
+| **Three-Tier Matching (Tier 1)** | Precision | 100.0% | 100.0% | measured | Replayed through backend/app/matching/matcher.py on synthetic sample |
+| **Three-Tier Matching (Tier 1)** | Recall | 78.6% | 78.6% | measured | Replayed through backend/app/matching/matcher.py on synthetic sample |
+| **Three-Tier Matching (Tier 1+2)** | Precision | 90.4% | 90.4% | measured | Replayed through backend/app/matching/matcher.py on synthetic sample |
+| **Three-Tier Matching (Tier 1+2)** | False Links | 51.0 | 51.0 | measured | Replayed through backend/app/matching/matcher.py on synthetic sample |
+| **Three-Tier Matching (Final)** | Precision | 96.2% | 96.2% | measured | Replayed through backend/app/matching/matcher.py on synthetic sample |
+| **Three-Tier Matching (Final)** | Recall | 94.0% | 90.6% | measured | Replayed through backend/app/matching/matcher.py on synthetic sample |
+| **Three-Tier Matching (Final)** | F1-Score | 95.1% | 93.3% | measured | Replayed through backend/app/matching/matcher.py on synthetic sample |
+| **Kinematic Speed Filter** | False Link Reduction | 62.7% | 62.8% | measured | Replayed through backend/app/matching/matcher.py on synthetic sample |
+| **Ablation: Preprocessing** | Error Reduction | 41.2% | not measured | not measured | Requires paired raw vs enhanced OCR evaluation on labeled crops |
+| **Ablation: YOLOv8m** | Throughput | 62.0 FPS | 3.1 FPS | measured | Measured on local CPU (vs paper 62 FPS on NVIDIA GPU) |
+| **Ablation: Faster R-CNN** | Throughput | 8.0 FPS | not measured | not measured | Faster R-CNN baseline not implemented in repository |
+| **Ablation: Faster R-CNN** | mAP@0.5 | 95.0% | not measured | not measured | Faster R-CNN baseline not implemented in repository |
+| **Ablation: ByteTrack** | MOTA | 78.5% | 75.5% | measured | Real VehicleTracker output evaluated via py-motmetrics |
+| **Ablation: DeepSORT** | MOTA | 74.9% | not measured | not measured | DeepSORT baseline not implemented in repository |
+| **Ablation: SORT** | MOTA | 68.2% | not measured | not measured | SORT baseline not implemented in repository |
+
+> **Note on Evaluation Methodology**:
+> - Numbers marked `measured` are generated directly from real algorithmic implementations (`VehicleTracker` evaluated with `py-motmetrics`, `app.matching.matcher.match()` replaying cross-camera transit passes, and host CPU throughput benchmarking).
+> - Numbers marked `not measured` require the full physical surveillance datasets (UA-DETRAC, BDD100K, or labeled Indian plate crop folders) and dedicated NVIDIA GPU hardware.
+> - Full per-run raw numbers and deltas are stored in [results/table3.csv](results/table3.csv).
+
+---
+
+## Load Testing
+
+The platform includes an ingestion load testing suite under `loadtest/`:
+- **Apache JMeter Test Plan (`loadtest/roadtrace.jmx`)**: Models the paper's target workload of 500 virtual cameras generating 30,000 req/min (500 req/s steady state) with `ConstantThroughputTimer` in `calcMode=2` (All active threads (shared)).
+- **Python Benchmark Client (`loadtest/benchmark_load.py`)**: Lightweight asynchronous HTTP client for local verification. In a single-process development environment, it measures:
+  - Throughput: ~58 req/s
+  - Error Rate: 0.00% (0 errors across 500 requests)
+  - Latencies: p50 = 407 ms, p95 = 501 ms, p99 = 533 ms
+- Scaling to the paper's production target (500 req/s, p50 < 245 ms) requires multi-worker ASGI concurrency (`uvicorn --workers 4`), connection pool configuration, and NVMe database storage for PostgreSQL write-ahead logs.

@@ -17,6 +17,7 @@ from app.services.notifier import broadcaster
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await broadcaster.start()
     yield
     await broadcaster.stop()
 

@@ -15,6 +15,7 @@ from app.matching.haversine import est_speed_kmh
 from app.models.alert import Alert
 from app.models.alert_trigger import AlertTrigger
 from app.models.camera import Camera
+from app.models.enums import VehicleClass
 from app.models.sighting import Sighting
 from app.models.vehicle import Vehicle
 
@@ -103,6 +104,9 @@ get_vehicle_last_sighting = get_vehicle_previous_sighting
 async def match(
     new_sighting: Sighting,
     session: AsyncSession,
+    v_max_kmh: Optional[float] = None,
+    levenshtein_max: Optional[int] = None,
+    commit: bool = True,
 ) -> MatchResult:
     """Match a new sighting using the 3-tier matching engine in a single DB transaction.
 
@@ -123,8 +127,25 @@ async def match(
         Update sighting_count and last_seen via atomic SQL.
         Create alert_triggers rows if plate is on an active alert.
     """
+    effective_v_max = v_max_kmh if v_max_kmh is not None else settings.v_max_kmh
+    effective_lev_max = levenshtein_max if levenshtein_max is not None else settings.levenshtein_max
+
     plate = new_sighting.plate_number.strip().upper()
     new_sighting.plate_number = plate
+
+    # Ensure required Sighting fields have safe defaults
+    if not getattr(new_sighting, "raw_plate_text", None):
+        new_sighting.raw_plate_text = plate
+    if getattr(new_sighting, "vehicle_class", None) is None:
+        new_sighting.vehicle_class = VehicleClass.passenger_car
+    if getattr(new_sighting, "ocr_confidence", None) is None:
+        new_sighting.ocr_confidence = 1.0
+    if getattr(new_sighting, "track_id", None) is None:
+        new_sighting.track_id = 1
+    if getattr(new_sighting, "frames_voted", None) is None:
+        new_sighting.frames_voted = 1
+    if getattr(new_sighting, "job_id", None) is None:
+        new_sighting.job_id = 1
 
     # Normalize naive timestamps to UTC
     if new_sighting.timestamp.tzinfo is None:
@@ -165,7 +186,7 @@ async def match(
                 radius_km=settings.earth_radius_km,
             )
             speeds.append(v_prev)
-            if v_prev > settings.v_max_kmh:
+            if v_prev > effective_v_max:
                 return False, v_prev
 
         next_info = await get_vehicle_next_sighting(
@@ -186,7 +207,7 @@ async def match(
                 radius_km=settings.earth_radius_km,
             )
             speeds.append(v_next)
-            if v_next > settings.v_max_kmh:
+            if v_next > effective_v_max:
                 return False, v_next
 
         est_spd = max(speeds) if speeds else None
@@ -215,13 +236,13 @@ async def match(
             flag = "suspicious_duplicate_plate"
             new_sighting.flag = flag
             logger.warning(
-                f"Tier 1 duplicate plate detected: {plate} estimated speed {est_speed:.1f} km/h > {settings.v_max_kmh} km/h"
+                f"Tier 1 duplicate plate detected: {plate} estimated speed {est_speed:.1f} km/h > {effective_v_max} km/h"
             )
 
     # -------------------------------------------------------------
     # TIER 2: FUZZY + KINEMATIC
     # -------------------------------------------------------------
-    if matched_vehicle is None:
+    if matched_vehicle is None and effective_lev_max > 0:
         plate_len = len(plate)
         # Pre-filter by length within +-2 of observed plate (no first-two-characters rule)
         cand_stmt = select(Vehicle).where(
@@ -234,7 +255,7 @@ async def match(
         eligible_candidates: List[Dict[str, Any]] = []
         for cand in candidates:
             dist = Levenshtein.distance(cand.plate_number, plate)
-            if dist <= settings.levenshtein_max:
+            if dist <= effective_lev_max:
                 is_plausible, cand_speed = await validate_vehicle_kinematics(cand.id)
                 if cand_speed is not None and is_plausible:
                     eligible_candidates.append(
@@ -247,7 +268,7 @@ async def match(
                 elif cand_speed is not None and not is_plausible:
                     logger.info(
                         f"Tier 2 rejected candidate {cand.plate_number} for {plate}: "
-                        f"speed {cand_speed:.1f} km/h exceeds limit {settings.v_max_kmh} km/h"
+                        f"speed {cand_speed:.1f} km/h exceeds limit {effective_v_max} km/h"
                     )
 
         if eligible_candidates:
@@ -271,7 +292,7 @@ async def match(
             pg_insert(Vehicle)
             .values(
                 plate_number=plate,
-                vehicle_class=new_sighting.vehicle_class,
+                vehicle_class=new_sighting.vehicle_class or VehicleClass.passenger_car,
                 first_seen=new_sighting.timestamp,
                 last_seen=new_sighting.timestamp,
                 sighting_count=1,
@@ -336,9 +357,12 @@ async def match(
             f"on sighting id={new_sighting.id}"
         )
 
-    await session.commit()
-    await session.refresh(matched_vehicle)
-    await session.refresh(new_sighting)
+    if commit:
+        await session.commit()
+        await session.refresh(matched_vehicle)
+        await session.refresh(new_sighting)
+    else:
+        await session.flush()
 
     return MatchResult(
         vehicle=matched_vehicle,

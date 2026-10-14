@@ -3,6 +3,7 @@ import hashlib
 from pathlib import Path
 import random
 import shutil
+import sys
 from typing import Dict, List, Optional, Set, Tuple
 
 import cv2
@@ -252,7 +253,13 @@ class DatasetPreparer:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Prepare YOLO License Plate Dataset")
+    parser = argparse.ArgumentParser(description="Prepare YOLO License Plate or Vehicle Dataset (70/15/15 Clip Split)")
+    parser.add_argument(
+        "--input-dir",
+        type=str,
+        default=None,
+        help="Directory containing real YOLO-format data (images/ and labels/ subdirectories or clip folders) to ingest",
+    )
     parser.add_argument(
         "--output-dir",
         type=str,
@@ -260,22 +267,39 @@ if __name__ == "__main__":
         help="Destination directory for processed YOLO dataset",
     )
     parser.add_argument(
+        "--classes",
+        nargs="+",
+        default=["license_plate"],
+        help="Class names for data.yaml (default: license_plate)",
+    )
+    parser.add_argument(
         "--mock",
         action="store_true",
-        help="Generate synthetic dataset for testing/benchmarking",
+        help="Generate synthetic mock dataset for testing only (not for real model training)",
     )
     parser.add_argument(
         "--clips",
         type=int,
         default=60,
-        help="Number of synthetic clips to generate in mock mode",
+        help="Number of synthetic clips to generate in mock mode (test only)",
     )
     args = parser.parse_args()
 
     preparer = DatasetPreparer(output_dir=Path(args.output_dir))
     if args.mock:
-        print(f"Generating synthetic dataset with {args.clips} clips...")
+        print(f"Generating synthetic mock dataset (testing only) with {args.clips} clips...")
         res = preparer.generate_synthetic_plate_dataset(num_clips=args.clips)
-        print("Dataset prepared successfully:", res)
+        print("Mock test dataset prepared successfully:", res)
+    elif args.input_dir:
+        input_path = Path(args.input_dir)
+        if not input_path.exists():
+            raise FileNotFoundError(f"Input directory not found: {input_path}")
+        print(f"Ingesting real dataset from {input_path}...")
+        n_frames = preparer.ingest_directory(input_path)
+        print(f"Ingested {n_frames} unique frames across {len(preparer.clips)} clips.")
+        print("Splitting dataset 70/15/15 by video clip...")
+        res = preparer.split_and_export(classes=args.classes)
+        print("Real dataset prepared and split successfully:", res)
     else:
-        print(f"Dataset preparer initialized for output directory: {args.output_dir}")
+        print("Error: Specify either --input-dir <path> for real dataset ingest or --mock for test-only synthetic dataset.")
+        sys.exit(1)
