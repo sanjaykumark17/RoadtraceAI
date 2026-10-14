@@ -15,9 +15,101 @@ import {
 // Default center: Chennai Corridor (Kathipara - ORR)
 const DEFAULT_CENTER = [80.1491, 12.9675]; // [lng, lat]
 
-// CartoDB Dark Matter vector GL style as requested in Upgrade 2
-const MAP_STYLE_URL = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
-const FALLBACK_STYLE_URL = "https://tiles.openfreemap.org/styles/dark";
+// High-reliability map styles for RoadTrace AI
+export const MAP_STYLES = {
+  cartoDark: {
+    id: "cartoDark",
+    label: "Dark Matter",
+    style: {
+      version: 8,
+      glyphs: "https://tiles.basemaps.cartocdn.com/fonts/{fontstack}/{range}.pbf",
+      sources: {
+        "carto-dark-tiles": {
+          type: "raster",
+          tiles: [
+            "https://a.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png",
+            "https://b.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png",
+            "https://c.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png",
+            "https://d.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png",
+          ],
+          tileSize: 256,
+          attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+        },
+      },
+      layers: [
+        {
+          id: "carto-dark-base",
+          type: "raster",
+          source: "carto-dark-tiles",
+          minzoom: 0,
+          maxzoom: 20,
+        },
+      ],
+    },
+  },
+  osm: {
+    id: "osm",
+    label: "OpenStreetMap",
+    style: {
+      version: 8,
+      glyphs: "https://tiles.basemaps.cartocdn.com/fonts/{fontstack}/{range}.pbf",
+      sources: {
+        "osm-tiles": {
+          type: "raster",
+          tiles: [
+            "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+          ],
+          tileSize: 256,
+          attribution: "&copy; OpenStreetMap contributors",
+        },
+      },
+      layers: [
+        {
+          id: "osm-layer",
+          type: "raster",
+          source: "osm-tiles",
+          minzoom: 0,
+          maxzoom: 19,
+        },
+      ],
+    },
+  },
+  vectorDark: {
+    id: "vectorDark",
+    label: "Vector Dark GL",
+    style: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
+  },
+  voyager: {
+    id: "voyager",
+    label: "Voyager",
+    style: {
+      version: 8,
+      glyphs: "https://tiles.basemaps.cartocdn.com/fonts/{fontstack}/{range}.pbf",
+      sources: {
+        "voyager-tiles": {
+          type: "raster",
+          tiles: [
+            "https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+            "https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+            "https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+            "https://d.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
+          ],
+          tileSize: 256,
+          attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+        },
+      },
+      layers: [
+        {
+          id: "voyager-layer",
+          type: "raster",
+          source: "voyager-tiles",
+          minzoom: 0,
+          maxzoom: 20,
+        },
+      ],
+    },
+  },
+};
 
 /**
  * Calculate geographical bearing between two points in degrees (0 = North, 90 = East).
@@ -212,7 +304,7 @@ function ensureCameraLayers(map, onCameraClick) {
       filter: ["has", "point_count"],
       layout: {
         "text-field": "{point_count_abbreviated}",
-        "text-font": ["DIN Offc Pro Medium", "Arial Unicode MS Bold"],
+        "text-font": ["Open Sans Regular", "Roboto Regular"],
         "text-size": 12,
       },
       paint: {
@@ -347,13 +439,17 @@ export function DashboardMapPage({ initialSearchPlate = null, onPlateSelect = nu
   const vehicleCursorRef = useRef(null);
   const cameraPopupRef = useRef(null);
 
-  // 1. Initialize MapLibre GL with Carto Dark Matter Vector Style
+  const [currentStyle, setCurrentStyle] = useState("cartoDark");
+
+  // 1. Initialize MapLibre GL
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
+    const initialStyleConfig = MAP_STYLES[currentStyle]?.style || MAP_STYLES.cartoDark.style;
+
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: MAP_STYLE_URL,
+      style: initialStyleConfig,
       center: DEFAULT_CENTER,
       zoom: 12,
       attributionControl: true,
@@ -384,18 +480,27 @@ export function DashboardMapPage({ initialSearchPlate = null, onPlateSelect = nu
         .addTo(map);
     };
 
-    map.on("load", () => {
+    const setupLayers = () => {
+      if (!map.isStyleLoaded()) return;
       ensureTrajectoryLayers(map);
       ensureCameraLayers(map, handleCameraPopup);
       setIsMapReady(true);
+      map.resize();
+    };
+
+    map.on("load", setupLayers);
+    map.on("styledata", () => {
+      if (map.isStyleLoaded()) {
+        setupLayers();
+      }
     });
 
-    // Handle fallback dark style if Carto is slow or unreachable
+    // Handle fallback if vector style encounters error
     map.on("error", (e) => {
-      if (e?.error?.message?.includes("style") && map.getStyle() !== FALLBACK_STYLE_URL) {
-        console.warn("Attempting fallback dark style:", FALLBACK_STYLE_URL);
+      console.warn("MapLibre event error:", e);
+      if (e?.error?.message?.includes("style") || e?.error?.message?.includes("404")) {
         try {
-          map.setStyle(FALLBACK_STYLE_URL);
+          map.setStyle(MAP_STYLES.cartoDark.style);
         } catch {}
       }
     });
@@ -906,6 +1011,32 @@ export function DashboardMapPage({ initialSearchPlate = null, onPlateSelect = nu
             </span>
           </div>
 
+          {/* Map Style Selector */}
+          <div className="flex items-center space-x-1 bg-neutral-950 border border-neutral-800 rounded p-0.5">
+            {Object.entries(MAP_STYLES).map(([key, s]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => {
+                  setCurrentStyle(key);
+                  const map = mapRef.current;
+                  if (map && MAP_STYLES[key]) {
+                    setIsMapReady(false);
+                    map.setStyle(MAP_STYLES[key].style);
+                  }
+                }}
+                className={`px-2 py-0.5 rounded text-[10px] font-mono transition ${
+                  currentStyle === key
+                    ? "bg-white text-black font-bold shadow-sm"
+                    : "text-neutral-400 hover:text-white"
+                }`}
+                title={s.label}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+
           {/* Cameras Cluster Toggle */}
           <button
             onClick={() => setShowCameras((prev) => !prev)}
@@ -923,9 +1054,9 @@ export function DashboardMapPage({ initialSearchPlate = null, onPlateSelect = nu
 
       {/* Main Map + Side Telemetry Grid */}
       <div className="flex-1 relative flex overflow-hidden">
-        {/* MapLibre GL Container with Carto Dark Matter Vector Style */}
-        <div className="flex-1 relative z-0">
-          <div ref={mapContainerRef} className="w-full h-full relative" />
+        {/* MapLibre GL Container with Dark Matter Cartography */}
+        <div className="flex-1 relative z-0 h-full w-full">
+          <div ref={mapContainerRef} className="w-full h-full min-h-[450px] relative" />
         </div>
 
         {/* Side Telemetry & Inspection Dock */}
