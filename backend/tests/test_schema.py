@@ -27,8 +27,22 @@ def test_exactly_eight_tables():
     engine = create_engine(settings.database_url_sync)
     insp = inspect(engine)
     db_tables = set(insp.get_table_names())
-    app_tables = db_tables.intersection(EXPECTED_TABLES)
-    assert app_tables == EXPECTED_TABLES, f"Missing tables: {EXPECTED_TABLES - app_tables}"
+    # Filter out PostGIS extension tables and alembic
+    SYSTEM_OR_EXTENSION = {"alembic_version", "spatial_ref_sys"}
+    POSTGIS_PREFIXES = (
+        "pagc_", "geocode_", "loader_", "zip_", "addr",
+        "county", "cousub", "direction_", "edges", "faces",
+        "featnames", "layer", "place", "secondary_unit_",
+        "state", "street_type_", "tabblock", "topology", "tract",
+        "bg", "zcta5",
+    )
+    app_tables = {
+        t for t in db_tables
+        if t not in SYSTEM_OR_EXTENSION
+        and not any(t.startswith(p) or t == p.rstrip("_") for p in POSTGIS_PREFIXES)
+        and "lookup" not in t
+    }
+    assert app_tables == EXPECTED_TABLES, f"Missing: {EXPECTED_TABLES - app_tables}, Extra: {app_tables - EXPECTED_TABLES}"
     assert len(app_tables) == 8
 
 
