@@ -2,21 +2,17 @@ import argparse
 from pathlib import Path
 import random
 import sys
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 # Add backend directory to sys.path so app modules can be imported
 backend_path = Path(__file__).resolve().parents[2] / "backend"
 if str(backend_path) not in sys.path:
     sys.path.insert(0, str(backend_path))
 
-import cv2
-import numpy as np
 
 from app.inference.plate_ocr import (
     PlateVoter,
     normalize_plate,
-    process_vehicle_crop_for_plate,
-    read_plate_text,
 )
 
 

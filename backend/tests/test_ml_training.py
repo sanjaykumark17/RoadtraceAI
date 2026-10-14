@@ -1,9 +1,7 @@
 from pathlib import Path
-import tempfile
 
 import cv2
 import numpy as np
-import pytest
 import yaml
 
 from ml.training.finetune_vehicle import (

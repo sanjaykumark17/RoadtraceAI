@@ -11,7 +11,6 @@ if str(backend_path) not in sys.path:
 
 from ultralytics import YOLO
 
-from app.core.config import settings
 
 
 def train_plate_detector(
@@ -75,7 +74,7 @@ def train_plate_detector(
     if device is not None:
         train_args["device"] = device
 
-    train_results = model.train(**train_args)
+    model.train(**train_args)
 
     # Save best weights to target destination
     best_weights = Path(project) / name / "weights" / "best.pt"

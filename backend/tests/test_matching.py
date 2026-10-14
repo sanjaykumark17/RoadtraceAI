@@ -6,7 +6,6 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select, text
 
-from app.core.config import settings
 from app.db.seed import seed_database
 from app.db.session import AsyncSession, SyncSession
 from app.matching.haversine import est_speed_kmh, haversine_km

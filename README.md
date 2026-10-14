@@ -11,7 +11,7 @@ Four decoupled layers:
 1. **Video Ingest**: Camera streams consumed frame-by-frame with RTSP reconnect logic and blur detection (`tau = 100`).
 2. **Inference Worker**: YOLOv8m detection, ByteTrack tracking, CLAHE + Bilateral enhancement, EasyOCR with positional confusion correction and multi-frame voting (runs on dedicated GPU host, never blocks API).
 3. **Storage**: PostgreSQL 15 + PostGIS for spatial queries, composite indexes on spatio-temporal sightings, and JSONB audit logs.
-4. **Dashboard**: React 18 + Leaflet web UI with speed-coded polylines, timeline replay, and live WebSocket telemetry.
+4. **Dashboard**: React 18 + MapLibre GL web UI with speed-coded polylines, timeline replay, and live WebSocket telemetry.
 
 ---
 
@@ -30,7 +30,7 @@ make migrate     # applies database migrations
 
 ```
 backend/     FastAPI application, inference pipeline, workers
-frontend/    React + Vite dashboard with Leaflet map
+frontend/    React + Vite dashboard with MapLibre GL map
 ml/          training scripts, evaluation runner, model weights
 loadtest/    Apache JMeter test plan and load benchmark harness
 results/     Evaluation metrics and Table III output
@@ -39,26 +39,22 @@ docker/      Worker GPU runtime Dockerfiles
 
 ---
 
-## Paper Specification Audit Checklist
+## Status
 
-All 14 implementation steps from the RoadTrace AI specification have been audited and verified:
+### Implemented
+- Video ingest with frame-level blur detection (`tau = 100`) and RTSP reconnect handling.
+- Preprocessing pipeline with letterbox resizing to 640x640, CLAHE contrast enhancement, and bilateral filtering.
+- Plate and vehicle detection using YOLOv8m with ByteTrack multi-object tracking (`track_high_thresh = 0.45`, `track_low_thresh = 0.1`).
+- EasyOCR character recognition with positional character confusion correction and multi-frame voting.
+- Three-tier spatio-temporal matching (exact plate, fuzzy Levenshtein <= 2 with kinematic speed check <= 150 km/h, and new vehicle registration).
+- OSRM road-network distance and snapping query with Haversine fallback.
+- FastAPI REST backend with JWT authentication (HS256), role-based access control (admin, operator, viewer), PostgreSQL 15 + PostGIS spatio-temporal storage, and WebSocket telemetry broadcasting.
+- React 18 frontend dashboard using MapLibre GL with Carto Dark Matter vector tiles, road-snapped trajectory replay, camera clustering, and vehicle search.
 
-| Step | Component | Implementation File & Lines | Audit Status | Key Target Verified |
-| :---: | :--- | :--- | :---: | :--- |
-| **1** | System Configuration & Constants | [`backend/app/core/config.py:12-45`](file:///d:/Roadtrace_AI/backend/app/core/config.py#L12-L45) | **PASS** | `conf=0.45`, `iou=0.50`, `tau=100`, `v_max=150 km/h` |
-| **2** | PostGIS Schema & Spatial Indexes | [`backend/app/models/sighting.py:22-28`](file:///d:/Roadtrace_AI/backend/app/models/sighting.py#L22-L28) | **PASS** | 8 tables, composite index, GiST spatial index |
-| **3** | FastAPI Auth & RBAC | [`backend/app/api/auth.py:21-82`](file:///d:/Roadtrace_AI/backend/app/api/auth.py#L21-L82) | **PASS** | JWT HS256 (15m/7d), 3 roles, audit logging |
-| **4** | Frame Ingestion & Preprocessing | [`backend/app/inference/preprocess.py:9-155`](file:///d:/Roadtrace_AI/backend/app/inference/preprocess.py#L9-L155) | **PASS** | Letterbox, blur score `tau=100`, CLAHE (`clip=2.0`), Bilateral |
-| **5** | YOLOv8m Detector & ByteTrack | [`backend/app/inference/detector.py:14-39`](file:///d:/Roadtrace_AI/backend/app/inference/detector.py#L14-L39), [`tracker.py:45-56`](file:///d:/Roadtrace_AI/backend/app/inference/tracker.py#L45-L56) | **PASS** | 4 vehicle classes, ByteTrack two-stage association |
-| **6** | Plate Dataset Pipeline & Training | [`ml/training/prepare_dataset.py:104-125`](file:///d:/Roadtrace_AI/ml/training/prepare_dataset.py#L104-L125) | **PASS** | 70/15/15 clip split, class weights, augmentations |
-| **7** | Plate OCR, Confusion & Voting | [`backend/app/inference/plate_ocr.py:15-95`](file:///d:/Roadtrace_AI/backend/app/inference/plate_ocr.py#L15-L95), [`280-330`](file:///d:/Roadtrace_AI/backend/app/inference/plate_ocr.py#L280-L330) | **PASS** | Positional matrix, 41.2% error fix, 5–15 frame voter |
-| **8** | Inference Worker Pipeline | [`backend/app/workers/inference_worker.py:170-420`](file:///d:/Roadtrace_AI/backend/app/workers/inference_worker.py#L170-L420) | **PASS** | `SKIP LOCKED` job queue, 1 sighting/track, non-blocking |
-| **9** | Three-Tier Matching & Haversine | [`backend/app/matching/haversine.py:10-75`](file:///d:/Roadtrace_AI/backend/app/matching/haversine.py#L10-L75), [`matcher.py:102-238`](file:///d:/Roadtrace_AI/backend/app/matching/matcher.py#L102-L238) | **PASS** | Exact (clone check), Fuzzy (Levenshtein<=2, v<=150), New |
-| **10** | Trajectory GeoJSON & WebSocket | [`backend/app/api/vehicles.py:75-145`](file:///d:/Roadtrace_AI/backend/app/api/vehicles.py#L75-L145), [`ws.py:20-110`](file:///d:/Roadtrace_AI/backend/app/api/ws.py#L20-L110) | **PASS** | FeatureCollection, segment speeds, Postgres LISTEN/NOTIFY |
-| **11** | React Dashboard with Leaflet Map | [`frontend/src/pages/DashboardPage.jsx`](file:///d:/Roadtrace_AI/frontend/src/pages/DashboardPage.jsx), [`frontend/src/components/Map.jsx`](file:///d:/Roadtrace_AI/frontend/src/components/Map.jsx) | **PASS** | Color polylines, timeline replay slider, Vitest tests |
-| **12** | Evaluation Runner & Table III | [`ml/evaluation/run_all.py:1-594`](file:///d:/Roadtrace_AI/ml/evaluation/run_all.py#L1-L594), [`results/table3.csv`](file:///d:/Roadtrace_AI/results/table3.csv) | **PASS** | Seeds (42, 43, 44), 3 runs mean, Table III diff report |
-| **13** | Apache JMeter Load Test (500 req/s)| [`loadtest/roadtrace.jmx`](file:///d:/Roadtrace_AI/loadtest/roadtrace.jmx), [`loadtest/README.md`](file:///d:/Roadtrace_AI/loadtest/README.md) | **PASS** | 500 virtual cameras, 60s ramp-up, 10m steady, 0 errors |
-| **14** | Production Containers & CI | [`docker-compose.prod.yml`](file:///d:/Roadtrace_AI/docker-compose.prod.yml), [`.github/workflows/ci.yml`](file:///d:/Roadtrace_AI/.github/workflows/ci.yml) | **PASS** | Multi-stage Dockerfiles, healthchecks, rate limiting, CI |
+### Not Yet Measured
+- Full-dataset detection precision, recall, and mAP across held-out test splits on physical GPU hardware.
+- Real-world multi-camera MOTA tracking metrics against human-annotated multi-camera ground truth.
+- Distributed production multi-node load test against physical camera networks.
 
 ---
 

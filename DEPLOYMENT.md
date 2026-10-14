@@ -90,7 +90,7 @@ python -m app.db.seed
 
 ### 3.1 Render Web Service Configuration
 * **Service Type**: Web Service (Docker or Python Native).
-* **Environment**: Docker (uses [`backend/Dockerfile`](file:///d:/Roadtrace_AI/backend/Dockerfile)) or Python 3.10.
+* **Environment**: Docker (uses `backend/Dockerfile`) or Python 3.10.
 * **Region**: Choose region closest to your AWS RDS instance (e.g., `us-east-1` / `oregon`).
 * **Start Command** (if native):
   ```bash

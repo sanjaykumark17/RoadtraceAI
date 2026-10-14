@@ -17,14 +17,12 @@ Outputs results/table3.csv and prints formatted Markdown tables.
 import argparse
 import csv
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import random
 import sys
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
-import cv2
 import numpy as np
 
 # Ensure repo root and backend directories are on sys.path
@@ -36,12 +34,10 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 import motmetrics as mm
-from rapidfuzz.distance import Levenshtein
 from ultralytics import YOLO
 
 from app.core.config import settings
 from app.inference.plate_ocr import PlateVoter, normalize_plate
-from app.matching.haversine import est_speed_kmh
 from ml.evaluation.matching_eval import (
     CSV_PATH,
     generate_evaluation_dataset,
@@ -72,7 +68,7 @@ def set_seed(seed: int) -> None:
 
 def evaluate_vehicle_detector(seed: int) -> Dict[str, float]:
     """Evaluate vehicle detector (YOLOv8m) on 4 vehicle classes.
-    
+
     Paper Targets:
       Precision: 0.925 (92.5%)
       Recall   : 0.925 (92.5%)
@@ -86,7 +82,7 @@ def evaluate_vehicle_detector(seed: int) -> Dict[str, float]:
         # Benchmark inference on vehicle crops
         dummy = np.full((640, 640, 3), 120, dtype=np.uint8)
         model(dummy, verbose=False)
-    
+
     # Class-weighted balanced evaluation across 18,600 test instances
     # Random perturbation around model performance per seed
     jitter = (seed % 5 - 2) * 0.001
@@ -259,7 +255,7 @@ def evaluate_matching(seed: int) -> Dict[str, float]:
 
 def evaluate_clahe_confusion_ablation(seed: int) -> Dict[str, float]:
     """Evaluate ablation: with vs without CLAHE + confusion matrix on character-level errors.
-    
+
     Paper target: fixes 41.2% of character-level errors.
     """
     set_seed(seed)

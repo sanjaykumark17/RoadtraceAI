@@ -4,7 +4,6 @@ from unittest.mock import MagicMock, patch
 
 import cv2
 import numpy as np
-import pytest
 
 from app.core.config import settings
 from app.inference.ingest import FrameSource

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import os
 from pathlib import Path
 import sys
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import cv2
 import numpy as np

@@ -1,18 +1,12 @@
 from unittest.mock import MagicMock
 
-import cv2
 import numpy as np
 import pytest
 import torch
 from ultralytics.engine.results import Boxes
 
-from app.core.config import settings
 from app.inference.plate_ocr import (
-    DIGIT_TO_LETTER,
-    LETTER_TO_DIGIT,
-    OCR_ALLOWLIST,
     PlateVoter,
-    VoteResult,
     normalize_plate,
     process_vehicle_crop_for_plate,
 )

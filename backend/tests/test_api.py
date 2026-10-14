@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 from httpx import ASGITransport
-from jose import jwt
+import jwt
 import pytest
 from sqlalchemy import select
 

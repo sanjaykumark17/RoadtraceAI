@@ -1,8 +1,5 @@
 from pathlib import Path
-from types import SimpleNamespace
 
-import cv2
-import numpy as np
 import pytest
 import torch
 from ultralytics.engine.results import Boxes
@@ -15,9 +12,7 @@ from app.inference.detector import (
     YOLODetector,
     get_detector,
 )
-from app.inference.ingest import FrameSource
 from app.inference.tracker import (
-    TrackedVehicle,
     VehicleTracker,
     get_tracker,
     reset_trackers,

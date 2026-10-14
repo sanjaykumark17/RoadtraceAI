@@ -6,8 +6,6 @@ import pytest
 from app.matching.haversine import haversine_km, road_distance_km
 from app.matching.road_distance import (
     async_get_snapped_segment,
-    async_query_osrm_route,
-    async_query_osrm_table_distance,
     get_snapped_segment,
     query_osrm_route,
     query_osrm_table_distance,

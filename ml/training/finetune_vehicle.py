@@ -9,7 +9,6 @@ backend_path = Path(__file__).resolve().parents[2] / "backend"
 if str(backend_path) not in sys.path:
     sys.path.insert(0, str(backend_path))
 
-import numpy as np
 from ultralytics import YOLO
 
 # 4 Vehicle classes with distribution (18,600 total instances):
@@ -88,7 +87,7 @@ def finetune_vehicle_detector(
     if device is not None:
         train_args["device"] = device
 
-    train_results = model.train(**train_args)
+    model.train(**train_args)
 
     best_weights = Path(project) / name / "weights" / "best.pt"
     if best_weights.exists():

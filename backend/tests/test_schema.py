@@ -1,6 +1,4 @@
-from geoalchemy2.elements import WKTElement
 from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.security import verify_password
@@ -9,11 +7,8 @@ from app.db.session import SyncSession
 from app.models import (
     Base,
     Camera,
-    CameraStatus,
     User,
     UserRole,
-    Vehicle,
-    VehicleClass,
 )
 
 EXPECTED_TABLES = {
