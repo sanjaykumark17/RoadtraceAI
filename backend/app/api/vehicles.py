@@ -6,12 +6,13 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession as SAAsyncSession
 
 from app.core.config import settings
 from app.core.deps import get_db, require_role
+from app.core.rate_limiter import check_api_rate_limit
 from app.matching.haversine import est_speed_kmh
 from app.matching.road_distance import async_get_snapped_segment
 from app.models.camera import Camera
@@ -30,10 +31,22 @@ def parse_dt(val: str | None) -> datetime | None:
         val = val[:-1] + "+00:00"
     if " " in val and "+" not in val:
         val = val.replace(" ", "+")
-    return datetime.fromisoformat(val)
+    try:
+        dt = datetime.fromisoformat(val)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid datetime format: {e}",
+        )
+    if dt.tzinfo is None or dt.utcoffset() is None:
+        raise HTTPException(
+            status_code=422,
+            detail="timezone-aware datetime required",
+        )
+    return dt
 
 
-@router.get("/{plate}/trajectory")
+@router.get("/{plate}/trajectory", dependencies=[Depends(check_api_rate_limit)])
 async def get_trajectory(
     plate: str,
     request: Request,
@@ -44,8 +57,9 @@ async def get_trajectory(
 ) -> dict[str, Any]:
     """Retrieve GeoJSON FeatureCollection trajectory for a vehicle ordered chronologically by timestamp.
 
-    Uses the composite index (plate_number, timestamp DESC) for optimal latency.
+    Uses SQL ORDER BY timestamp ASC, id for stable chronological ordering.
     """
+    clean_plate = plate.strip().upper()
     from_ts = parse_dt(from_param)
     to_ts = parse_dt(to_param)
     await write_audit_log(
@@ -53,12 +67,12 @@ async def get_trajectory(
         user_id=user.id,
         action="trace",
         resource="vehicles",
-        resource_id=plate,
+        resource_id=clean_plate,
         ip=request.client.host if request.client else None,
     )
     await db.commit()
 
-    # Query matching index (plate_number, timestamp DESC)
+    # Query with SQL ORDER BY timestamp ASC, id
     stmt = (
         select(
             Sighting.id,
@@ -71,7 +85,7 @@ async def get_trajectory(
             Camera.longitude,
         )
         .join(Camera, Camera.id == Sighting.camera_id)
-        .where(Sighting.plate_number == plate)
+        .where(Sighting.plate_number == clean_plate)
     )
 
     if from_ts is not None:
@@ -79,11 +93,10 @@ async def get_trajectory(
     if to_ts is not None:
         stmt = stmt.where(Sighting.timestamp <= to_ts)
 
-    stmt = stmt.order_by(Sighting.timestamp.desc())
+    stmt = stmt.order_by(Sighting.timestamp.asc(), Sighting.id.asc())
 
     res = await db.execute(stmt)
-    # Reverse rows to return trajectory in chronological order (earliest to latest)
-    rows = list(reversed(res.all()))
+    rows = res.all()
     n = len(rows)
 
     point_features: list[dict[str, Any]] = []
@@ -96,10 +109,10 @@ async def get_trajectory(
         coords = [lon, lat]
         linestring_coords.append(coords)
 
-        # Dwell time in seconds until next sighting
-        dwell_seconds = None
+        # Gap time in seconds until next sighting (travel time between sightings)
+        gap_seconds = None
         if i < n - 1:
-            dwell_seconds = max(
+            gap_seconds = max(
                 0.0,
                 (rows[i + 1].timestamp - row.timestamp).total_seconds(),
             )
@@ -107,10 +120,7 @@ async def get_trajectory(
         # Snapshot URL
         snapshot_url = None
         if row.snapshot_path:
-            if row.snapshot_path.startswith("http") or row.snapshot_path.startswith("/"):
-                snapshot_url = row.snapshot_path
-            else:
-                snapshot_url = f"/snapshots/{Path(row.snapshot_path).name}"
+            snapshot_url = f"/snapshots/{Path(row.snapshot_path).name}"
 
         point_features.append(
             {
@@ -133,7 +143,8 @@ async def get_trajectory(
                         else 1.0
                     ),
                     "snapshot_url": snapshot_url,
-                    "dwell_seconds": dwell_seconds,
+                    "gap_seconds": gap_seconds,
+                    "dwell_seconds": gap_seconds,
                 },
             }
         )

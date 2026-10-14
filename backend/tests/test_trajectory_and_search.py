@@ -8,19 +8,23 @@ from uuid import uuid4
 import httpx
 import pytest
 from app.core.config import settings
+from app.core.security import create_access_token
 from app.db.seed import seed_database
 from app.db.session import AsyncSession, SyncSession
 from app.main import app
 from app.matching.haversine import est_speed_kmh
 from app.models.audit_log import AuditLog
 from app.models.camera import Camera
-from app.models.enums import VehicleClass
+from app.models.enums import UserRole, VehicleClass
 from app.models.processing_job import ProcessingJob
 from app.models.sighting import Sighting
+from app.models.user import User
 from app.models.vehicle import Vehicle
 from httpx import ASGITransport
 from sqlalchemy import select, text
 from starlette.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
+from tests.conftest import TEST_ADMIN_PASSWORD, TEST_OPERATOR_PASSWORD, TEST_VIEWER_PASSWORD
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -52,7 +56,7 @@ async def client():
 async def admin_token(client: httpx.AsyncClient) -> str:
     resp = await client.post(
         "/api/v1/auth/login",
-        json={"email": "admin@roadtrace.ai", "password": "admin123"},
+        json={"email": "admin@roadtrace.ai", "password": TEST_ADMIN_PASSWORD},
     )
     assert resp.status_code == 200
     return resp.json()["access_token"]
@@ -62,7 +66,7 @@ async def admin_token(client: httpx.AsyncClient) -> str:
 async def operator_token(client: httpx.AsyncClient) -> str:
     resp = await client.post(
         "/api/v1/auth/login",
-        json={"email": "operator@roadtrace.ai", "password": "operator123"},
+        json={"email": "operator@roadtrace.ai", "password": TEST_OPERATOR_PASSWORD},
     )
     assert resp.status_code == 200
     return resp.json()["access_token"]
@@ -72,7 +76,7 @@ async def operator_token(client: httpx.AsyncClient) -> str:
 async def viewer_token(client: httpx.AsyncClient) -> str:
     resp = await client.post(
         "/api/v1/auth/login",
-        json={"email": "viewer@roadtrace.ai", "password": "viewer123"},
+        json={"email": "viewer@roadtrace.ai", "password": TEST_VIEWER_PASSWORD},
     )
     assert resp.status_code == 200
     return resp.json()["access_token"]
@@ -313,7 +317,7 @@ async def test_trajectory_time_range_filter(
 
 @pytest.mark.asyncio
 async def test_search_fuzzy_levenshtein(
-    client: httpx.AsyncClient, viewer_token: str
+    client: httpx.AsyncClient, operator_token: str
 ):
     """Verify GET /api/v1/search?plate= returns fuzzy suggestions (Levenshtein <= 2)."""
     tag = uuid4().hex[:4].upper()
@@ -331,7 +335,7 @@ async def test_search_fuzzy_levenshtein(
         session.add_all([v1, v2, v3, v4])
         await session.commit()
 
-    headers = {"Authorization": f"Bearer {viewer_token}"}
+    headers = {"Authorization": f"Bearer {operator_token}"}
     resp = await client.get(f"/api/v1/search?plate={exact_plate}", headers=headers)
     assert resp.status_code == 200
     data = resp.json()
@@ -393,30 +397,62 @@ async def test_search_and_trajectory_audit_logging(
 
 
 def test_websocket_trajectory_live_feed():
-    """Verify WebSocket /ws/trajectory/{plate} receives live sighting via Postgres LISTEN/NOTIFY."""
+    """Verify WebSocket /ws/trajectory/{plate} rejects unauthorized connections, rejects plate '*', and receives live sighting when authorized."""
     ws_plate = f"WSFEED{uuid4().hex[:4].upper()}"
 
-    def insert_sighting_delayed():
-        time.sleep(0.5)
-        with SyncSession() as s:
-            s.execute(text(f"""
-                INSERT INTO sightings (
-                    vehicle_id, camera_id, plate_number, raw_plate_text,
-                    ocr_confidence, vehicle_class, track_id, timestamp,
-                    frames_voted, job_id
-                ) VALUES (
-                    1, 1, '{ws_plate}', '{ws_plate}',
-                    0.99, 'passenger_car', 888, NOW(),
-                    10, 1
-                );
-            """))
-            s.commit()
+    with SyncSession() as s:
+        op_user = s.query(User).filter_by(role=UserRole.operator).first()
+        viewer_user = s.query(User).filter_by(role=UserRole.viewer).first()
+        assert op_user is not None
+        assert viewer_user is not None
+        op_token = create_access_token(user_id=op_user.id, role="operator")
+        viewer_token = create_access_token(user_id=viewer_user.id, role="viewer")
 
-    thread = threading.Thread(target=insert_sighting_delayed)
-    thread.start()
+    import asyncio
+    from app.db.session import async_engine
 
-    with TestClient(app) as test_c:
-        with test_c.websocket_connect(f"/ws/trajectory/{ws_plate}") as ws:
+    asyncio.run(async_engine.dispose())
+    try:
+        with TestClient(app) as test_c:
+            # 1. Connection without token fails with 1008
+            with pytest.raises(WebSocketDisconnect) as exc_info:
+                with test_c.websocket_connect(f"/ws/trajectory/{ws_plate}"):
+                    pass
+            assert exc_info.value.code == 1008
+
+        # 2. Connection with plate="*" fails with 1008
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with test_c.websocket_connect(f"/ws/trajectory/*?token={op_token}"):
+                pass
+        assert exc_info.value.code == 1008
+
+        # 3. Connection with viewer role fails with 1008
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            with test_c.websocket_connect(f"/ws/trajectory/{ws_plate}?token={viewer_token}"):
+                pass
+        assert exc_info.value.code == 1008
+
+        # 4. Valid operator connection receives sighting
+        def insert_sighting_delayed():
+            time.sleep(0.5)
+            with SyncSession() as s:
+                s.execute(text(f"""
+                    INSERT INTO sightings (
+                        vehicle_id, camera_id, plate_number, raw_plate_text,
+                        ocr_confidence, vehicle_class, track_id, timestamp,
+                        frames_voted, job_id
+                    ) VALUES (
+                        1, 1, '{ws_plate}', '{ws_plate}',
+                        0.99, 'passenger_car', 888, NOW(),
+                        10, 1
+                    );
+                """))
+                s.commit()
+
+        thread = threading.Thread(target=insert_sighting_delayed)
+        thread.start()
+
+        with test_c.websocket_connect(f"/ws/trajectory/{ws_plate}?token={op_token}") as ws:
             msg = ws.receive_json()
             assert msg["plate_number"] == ws_plate
             assert msg["type"] == "Feature"
@@ -425,9 +461,9 @@ def test_websocket_trajectory_live_feed():
             assert msg["properties"]["camera_name"] == "CAM-GST-01"
             assert msg["properties"]["ocr_confidence"] == pytest.approx(0.99, 0.01)
 
-    thread.join()
-
-    # Clean up test row
-    with SyncSession() as s:
-        s.execute(text(f"DELETE FROM sightings WHERE plate_number = '{ws_plate}'"))
-        s.commit()
+        thread.join()
+    finally:
+        asyncio.run(async_engine.dispose())
+        with SyncSession() as s:
+            s.execute(text(f"DELETE FROM sightings WHERE plate_number = '{ws_plate}'"))
+            s.commit()

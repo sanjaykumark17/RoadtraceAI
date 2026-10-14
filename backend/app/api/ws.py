@@ -7,7 +7,9 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.core.security import decode_token
 from app.db.session import AsyncSession
+from app.models.user import User
 from app.services.audit import write_audit_log
 from app.services.notifier import broadcaster
 
@@ -58,24 +60,63 @@ def format_sighting_message(data: dict[str, Any]) -> dict[str, Any]:
 @router.websocket("/ws/trajectory/{plate}")
 async def ws_trajectory_feed(websocket: WebSocket, plate: str):
     """Stream newly recorded sightings for vehicle plate in near real time via Postgres LISTEN/NOTIFY."""
+    clean_plate = (plate or "").strip().upper()
+    if not clean_plate or clean_plate == "*" or len(clean_plate) > 20:
+        await websocket.close(code=1008)
+        return
+
+    # Authenticate before accept
+    token = websocket.query_params.get("token")
+    if not token:
+        auth_header = websocket.headers.get("authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ", 1)[1]
+
+    if not token:
+        await websocket.close(code=1008)
+        return
+
+    payload = decode_token(token)
+    if not payload or payload.get("type") != "access":
+        await websocket.close(code=1008)
+        return
+
+    sub = payload.get("sub")
+    role = payload.get("role")
+    if not sub or role not in ("operator", "admin"):
+        await websocket.close(code=1008)
+        return
+
+    try:
+        user_id = int(sub)
+    except (ValueError, TypeError):
+        await websocket.close(code=1008)
+        return
+
+    async with AsyncSession() as session:
+        user = await session.get(User, user_id)
+        if not user or not user.is_active:
+            await websocket.close(code=1008)
+            return
+
     await websocket.accept()
 
-    # Log websocket connection to audit_logs
+    # Log websocket connection to audit_logs with user_id
     try:
         async with AsyncSession() as session:
             await write_audit_log(
                 session,
-                user_id=None,
+                user_id=user_id,
                 action="trace",
                 resource="vehicles",
-                resource_id=plate,
+                resource_id=clean_plate,
                 ip=websocket.client.host if websocket.client else None,
             )
             await session.commit()
     except Exception as e:
         logger.warning(f"Failed to record audit log for websocket: {e}")
 
-    queue = await broadcaster.subscribe(plate)
+    queue = await broadcaster.subscribe(clean_plate)
 
     async def receive_client_messages():
         try:

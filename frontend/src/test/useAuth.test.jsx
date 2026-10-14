@@ -68,7 +68,7 @@ describe("useAuth & AuthContext", () => {
 
     let loginRes;
     await act(async () => {
-      loginRes = await result.current.login("operator@roadtrace.ai", "operator123");
+      loginRes = await result.current.login("operator@roadtrace.ai", "secret-operator-pass");
     });
 
     expect(loginRes.success).toBe(true);

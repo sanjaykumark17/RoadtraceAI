@@ -70,3 +70,25 @@ def test_roles():
 
 def test_algorithm():
     assert settings.algorithm == "HS256"
+
+
+def test_refuse_default_secret_key_outside_dev():
+    import pytest
+    from app.core.config import Settings
+
+    with pytest.raises(ValueError, match="Default secret key is not allowed outside development"):
+        Settings(environment="production", secret_key="change-me-in-production")
+
+
+def test_cors_origins_no_wildcard_fail_closed():
+    from app.core.config import Settings
+
+    s = Settings(cors_origins="*", frontend_url="")
+    assert s.allowed_origins == []
+
+    s2 = Settings(cors_origins="https://app.roadtrace.ai, *", frontend_url="")
+    assert s2.allowed_origins == ["https://app.roadtrace.ai"]
+
+    s3 = Settings(cors_origins="", frontend_url="")
+    assert s3.allowed_origins == []
+

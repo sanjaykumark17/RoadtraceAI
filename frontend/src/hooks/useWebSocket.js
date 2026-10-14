@@ -27,8 +27,10 @@ export function useWebSocket(plate, onMessage) {
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const host = window.location.host;
-    // Connect through Vite proxy /ws/trajectory/{plate}
-    const wsUrl = `${protocol}//${host}/ws/trajectory/${encodeURIComponent(plate)}`;
+    // Connect through Vite proxy /ws/trajectory/{plate} with access token
+    const token = localStorage.getItem("roadtrace_access_token");
+    const tokenParam = token ? `?token=${encodeURIComponent(token)}` : "";
+    const wsUrl = `${protocol}//${host}/ws/trajectory/${encodeURIComponent(plate)}${tokenParam}`;
 
     try {
       const socket = new WebSocket(wsUrl);

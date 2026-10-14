@@ -13,6 +13,12 @@ Four decoupled layers:
 3. **Storage**: PostgreSQL 15 + PostGIS for spatial queries, composite indexes on spatio-temporal sightings, and JSONB audit logs.
 4. **Dashboard**: React 18 + MapLibre GL web UI with speed-coded polylines, timeline replay, and live WebSocket telemetry.
 
+### Relational Schema & Deliberate Denormalization
+The schema applies intentional denormalization (not strict 3NF) for real-time latency and throughput:
+- `sightings.plate_number`: Duplicated on each sighting row so that high-throughput composite queries (`plate_number, timestamp DESC`) and WebSocket broadcast matching operate without a table join on `vehicles`.
+- `cameras.location` and `sightings.location`: Precomputed PostGIS `Geometry(Point, 4326)` columns stored alongside raw `latitude` and `longitude` to avoid on-the-fly geometry conversion during spatial searches and GiST index lookups.
+- `vehicles` counters (`sighting_count`, `first_seen`, `last_seen`): Incrementally maintained directly on vehicle records so that vehicle search, ranking, and profile lookups never scan or aggregate over millions of historical sightings.
+
 ---
 
 ## Quick Start

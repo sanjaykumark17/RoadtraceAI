@@ -91,6 +91,9 @@ def test_camera_timestamp_and_vehicle_indexes():
     assert plate_idx is not None
 
 
+from tests.conftest import TEST_ADMIN_PASSWORD
+
+
 def test_seed_admin_and_twelve_cameras():
     seed_database()
 
@@ -98,7 +101,7 @@ def test_seed_admin_and_twelve_cameras():
         admin = session.query(User).filter_by(email="admin@roadtrace.ai").first()
         assert admin is not None
         assert admin.role == UserRole.admin
-        assert verify_password("admin123", admin.password_hash)
+        assert verify_password(TEST_ADMIN_PASSWORD, admin.password_hash)
 
         cameras = session.query(Camera).all()
         assert len(cameras) >= 12
@@ -123,3 +126,22 @@ def test_explain_uses_composite_index():
         assert "ix_sightings_plate_timestamp" in plan_text
         assert "Index Scan" in plan_text
         assert "Seq Scan" not in plan_text
+
+
+def test_foreign_key_and_no_duplicate_indexes():
+    engine = create_engine(settings.database_url_sync)
+    insp = inspect(engine)
+
+    sightings_idx_names = {idx["name"] for idx in insp.get_indexes("sightings")}
+    assert "ix_sightings_vehicle_id" in sightings_idx_names
+    assert "ix_sightings_job_id" in sightings_idx_names
+
+    alert_triggers_idx_names = {idx["name"] for idx in insp.get_indexes("alert_triggers")}
+    assert "ix_alert_triggers_alert_id" in alert_triggers_idx_names
+    assert "ix_alert_triggers_sighting_id" in alert_triggers_idx_names
+
+    # Check connection pool is real pool (not NullPool)
+    from app.db.session import async_engine, sync_engine
+
+    assert sync_engine.pool.__class__.__name__ != "NullPool"
+    assert async_engine.pool.__class__.__name__ != "NullPool"

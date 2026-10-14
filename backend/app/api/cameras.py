@@ -3,6 +3,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from geoalchemy2.elements import WKTElement
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession as SAAsyncSession
 
 from app.core.deps import get_current_user, get_db, require_role
@@ -86,5 +87,12 @@ async def delete_camera(
     cam = await db.get(Camera, camera_id)
     if not cam:
         raise HTTPException(status_code=404, detail="camera not found")
-    await db.delete(cam)
-    await db.commit()
+    try:
+        await db.delete(cam)
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete camera with associated sightings or processing jobs",
+        )

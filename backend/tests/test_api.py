@@ -13,6 +13,7 @@ from app.db.session import AsyncSession
 from app.main import app
 from app.models.audit_log import AuditLog
 from app.models.enums import UserRole
+from tests.conftest import TEST_ADMIN_PASSWORD, TEST_OPERATOR_PASSWORD, TEST_VIEWER_PASSWORD
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -32,7 +33,7 @@ async def client():
 async def admin_token(client: httpx.AsyncClient) -> str:
     resp = await client.post(
         "/api/v1/auth/login",
-        json={"email": "admin@roadtrace.ai", "password": "admin123"},
+        json={"email": "admin@roadtrace.ai", "password": TEST_ADMIN_PASSWORD},
     )
     assert resp.status_code == 200
     return resp.json()["access_token"]
@@ -42,7 +43,7 @@ async def admin_token(client: httpx.AsyncClient) -> str:
 async def operator_token(client: httpx.AsyncClient) -> str:
     resp = await client.post(
         "/api/v1/auth/login",
-        json={"email": "operator@roadtrace.ai", "password": "operator123"},
+        json={"email": "operator@roadtrace.ai", "password": TEST_OPERATOR_PASSWORD},
     )
     assert resp.status_code == 200
     return resp.json()["access_token"]
@@ -52,7 +53,7 @@ async def operator_token(client: httpx.AsyncClient) -> str:
 async def viewer_token(client: httpx.AsyncClient) -> str:
     resp = await client.post(
         "/api/v1/auth/login",
-        json={"email": "viewer@roadtrace.ai", "password": "viewer123"},
+        json={"email": "viewer@roadtrace.ai", "password": TEST_VIEWER_PASSWORD},
     )
     assert resp.status_code == 200
     return resp.json()["access_token"]
@@ -98,7 +99,7 @@ def test_exactly_three_roles():
 async def test_auth_login_success(client: httpx.AsyncClient):
     resp = await client.post(
         "/api/v1/auth/login",
-        json={"email": "admin@roadtrace.ai", "password": "admin123"},
+        json={"email": "admin@roadtrace.ai", "password": TEST_ADMIN_PASSWORD},
     )
     assert resp.status_code == 200
     data = resp.json()
@@ -119,7 +120,7 @@ async def test_auth_login_bad_credentials(client: httpx.AsyncClient):
 async def test_auth_refresh(client: httpx.AsyncClient):
     login_resp = await client.post(
         "/api/v1/auth/login",
-        json={"email": "operator@roadtrace.ai", "password": "operator123"},
+        json={"email": "operator@roadtrace.ai", "password": TEST_OPERATOR_PASSWORD},
     )
     refresh_tok = login_resp.json()["refresh_token"]
 
@@ -252,6 +253,14 @@ async def test_viewer_gets_403_on_write_routes(
     resp = await client.get("/api/v1/vehicles/TN01AB1234/trajectory", headers=headers)
     assert resp.status_code == 403, f"Trajectory trace expected 403, got {resp.status_code}"
 
+    # 10. Sightings search: GET /sightings (operator/admin only)
+    resp = await client.get("/api/v1/sightings?plate=TN01AB1234", headers=headers)
+    assert resp.status_code == 403, f"Sightings search expected 403, got {resp.status_code}"
+
+    # 11. Plate search: GET /search (operator/admin only)
+    resp = await client.get("/api/v1/search?plate=TN01AB1234", headers=headers)
+    assert resp.status_code == 403, f"Plate search expected 403, got {resp.status_code}"
+
 
 async def test_viewer_allowed_on_read_routes(
     client: httpx.AsyncClient, viewer_token: str
@@ -263,16 +272,20 @@ async def test_viewer_allowed_on_read_routes(
     assert resp.status_code == 200
     assert len(resp.json()) >= 12
 
-    # Search sightings
-    resp = await client.get("/api/v1/sightings?plate=TN01AB1234", headers=headers)
-    assert resp.status_code == 200
-    assert isinstance(resp.json(), list)
-
 
 async def test_operator_permissions(
     client: httpx.AsyncClient, operator_token: str
 ):
     headers = {"Authorization": f"Bearer {operator_token}"}
+
+    # Operator can search sightings
+    resp = await client.get("/api/v1/sightings?plate=TN01AB1234", headers=headers)
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
+
+    # Operator can search plates
+    resp = await client.get("/api/v1/search?plate=KA01AB9999", headers=headers)
+    assert resp.status_code == 200
 
     # Operator cannot manage cameras (admin only)
     resp = await client.post(

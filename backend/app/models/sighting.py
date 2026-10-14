@@ -21,6 +21,8 @@ from app.models.enums import VehicleClass
 class Sighting(Base):
     __tablename__ = "sightings"
     __table_args__ = (
+        Index("ix_sightings_vehicle_id", "vehicle_id"),
+        Index("ix_sightings_job_id", "job_id"),
         Index("ix_sightings_plate_timestamp", "plate_number", desc("timestamp")),
         Index("ix_sightings_camera_timestamp", "camera_id", "timestamp"),
         Index("ix_sightings_location", "location", postgresql_using="gist"),

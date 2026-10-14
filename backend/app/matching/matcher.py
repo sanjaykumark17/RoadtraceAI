@@ -347,3 +347,7 @@ async def match(
         flag=flag,
         triggers_created=triggers_created,
     )
+
+
+# Alias
+match_sighting = match

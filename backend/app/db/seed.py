@@ -1,3 +1,5 @@
+import os
+import secrets
 from datetime import UTC, datetime, timedelta
 from geoalchemy2.elements import WKTElement
 from sqlalchemy import select
@@ -10,6 +12,14 @@ from app.models.processing_job import ProcessingJob
 from app.models.sighting import Sighting
 from app.models.user import User
 from app.models.vehicle import Vehicle
+
+
+def get_or_generate_seed_password(env_var: str, role_name: str) -> str:
+    pwd = os.environ.get(env_var)
+    if not pwd:
+        pwd = secrets.token_urlsafe(16)
+        print(f"Generated initial {role_name} password ({env_var}): {pwd}")
+    return pwd
 
 SAMPLE_CAMERAS = [
     {
@@ -101,43 +111,52 @@ SAMPLE_CAMERAS = [
 
 def seed_database() -> None:
     with SyncSession() as session:
-        # Seed admin user
+        # Seed or update admin user
         admin_email = "admin@roadtrace.ai"
+        admin_pass = get_or_generate_seed_password("RT_ADMIN_PASSWORD", "admin")
         existing_admin = session.scalar(
             select(User).where(User.email == admin_email)
         )
-        if not existing_admin:
+        if existing_admin:
+            existing_admin.password_hash = hash_password(admin_pass)
+        else:
             admin = User(
                 email=admin_email,
-                password_hash=hash_password("admin123"),
+                password_hash=hash_password(admin_pass),
                 role=UserRole.admin,
                 is_active=True,
             )
             session.add(admin)
 
-        # Seed operator user
+        # Seed or update operator user
         operator_email = "operator@roadtrace.ai"
+        operator_pass = get_or_generate_seed_password("RT_OPERATOR_PASSWORD", "operator")
         existing_operator = session.scalar(
             select(User).where(User.email == operator_email)
         )
-        if not existing_operator:
+        if existing_operator:
+            existing_operator.password_hash = hash_password(operator_pass)
+        else:
             operator = User(
                 email=operator_email,
-                password_hash=hash_password("operator123"),
+                password_hash=hash_password(operator_pass),
                 role=UserRole.operator,
                 is_active=True,
             )
             session.add(operator)
 
-        # Seed viewer user
+        # Seed or update viewer user
         viewer_email = "viewer@roadtrace.ai"
+        viewer_pass = get_or_generate_seed_password("RT_VIEWER_PASSWORD", "viewer")
         existing_viewer = session.scalar(
             select(User).where(User.email == viewer_email)
         )
-        if not existing_viewer:
+        if existing_viewer:
+            existing_viewer.password_hash = hash_password(viewer_pass)
+        else:
             viewer = User(
                 email=viewer_email,
-                password_hash=hash_password("viewer123"),
+                password_hash=hash_password(viewer_pass),
                 role=UserRole.viewer,
                 is_active=True,
             )

@@ -1,8 +1,12 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="RT_", env_file=".env")
+
+    # environment
+    environment: str = "development"
 
     # database
     database_url: str = "postgresql+asyncpg://roadtrace:roadtrace@localhost:5432/roadtrace"
@@ -17,6 +21,7 @@ class Settings(BaseSettings):
 
     # uploads & video sources
     upload_dir: str = "uploads"
+    snapshots_dir: str = "snapshots"
     rtsp_allowlist: list[str] = []
 
     # image preprocessing
@@ -50,7 +55,15 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000"
     frontend_url: str = ""
     auth_rate_limit_per_minute: int = 60
+    api_rate_limit_per_minute: int = 120
     auth_rate_limit_enabled: bool = True
+    trusted_proxies: list[str] = ["127.0.0.1", "::1"]
+
+    @model_validator(mode="after")
+    def validate_secret_key(self) -> "Settings":
+        if self.environment != "development" and self.secret_key == "change-me-in-production":
+            raise ValueError("Default secret key is not allowed outside development environment")
+        return self
 
     @property
     def allowed_origins(self) -> list[str]:
@@ -60,9 +73,9 @@ class Settings(BaseSettings):
                 continue
             for item in source.split(","):
                 cleaned = item.strip()
-                if cleaned:
+                if cleaned and cleaned != "*":
                     combined.add(cleaned)
-        return list(combined) if combined else ["*"]
+        return list(combined)
 
     # worker settings
     worker_concurrency: int = 1
@@ -71,3 +84,4 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+

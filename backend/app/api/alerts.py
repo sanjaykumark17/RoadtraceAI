@@ -2,6 +2,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession as SAAsyncSession
 
 from app.core.deps import get_db, require_role
@@ -78,5 +79,12 @@ async def delete_alert(
     alert = await db.get(Alert, alert_id)
     if not alert:
         raise HTTPException(status_code=404, detail="alert not found")
-    await db.delete(alert)
-    await db.commit()
+    try:
+        await db.delete(alert)
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete alert with associated triggers",
+        )

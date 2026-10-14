@@ -4,8 +4,8 @@ import { Shield, KeyRound, ArrowRight, AlertCircle, CheckCircle2 } from "lucide-
 
 export function LoginPage() {
   const { login, loading } = useAuth();
-  const [email, setEmail] = useState("admin@roadtrace.ai");
-  const [password, setPassword] = useState("admin123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState(null);
 
   const handleSubmit = async (e) => {
@@ -15,12 +15,6 @@ export function LoginPage() {
     if (!res.success) {
       setError(res.error);
     }
-  };
-
-  const handleDemoFill = (demoEmail, demoPass) => {
-    setEmail(demoEmail);
-    setPassword(demoPass);
-    setError(null);
   };
 
   return (
@@ -95,39 +89,6 @@ export function LoginPage() {
               )}
             </button>
           </form>
-
-          {/* Seeded Roles Quick Selector */}
-          <div className="mt-8 pt-6 border-t border-neutral-800">
-            <p className="text-[11px] font-mono uppercase tracking-wider text-neutral-400 text-center mb-3">
-              Seeded Verification Accounts:
-            </p>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => handleDemoFill("admin@roadtrace.ai", "admin123")}
-                className="px-2 py-1.5 bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 rounded text-[11px] font-mono text-neutral-200 transition text-center"
-              >
-                <div className="font-semibold text-white">Admin</div>
-                <div className="text-[9px] text-neutral-400">Full Access</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDemoFill("operator@roadtrace.ai", "operator123")}
-                className="px-2 py-1.5 bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 rounded text-[11px] font-mono text-neutral-200 transition text-center"
-              >
-                <div className="font-semibold text-white">Operator</div>
-                <div className="text-[9px] text-neutral-400">Trace & Jobs</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDemoFill("viewer@roadtrace.ai", "viewer123")}
-                className="px-2 py-1.5 bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 rounded text-[11px] font-mono text-neutral-200 transition text-center"
-              >
-                <div className="font-semibold text-white">Viewer</div>
-                <div className="text-[9px] text-neutral-400">Read-Only</div>
-              </button>
-            </div>
-          </div>
         </div>
 
         <p className="text-center text-[11px] font-mono text-neutral-400 mt-6">
